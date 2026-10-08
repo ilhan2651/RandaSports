@@ -7,7 +7,10 @@ import { Reveal } from "@/components/reveal";
 import { SportChips } from "@/components/sport-chips";
 import { StoryCard } from "@/components/story-card";
 
-export const revalidate = 60;
+// Önbellek yok, bilerek: bu sayfa searchParams okuyor (sayfalama ve süzgeçler) ve
+// sorgu dizesine bakan bir sayfa önceden üretilemiyor. Burada `revalidate` yazmak
+// Next'e "bunu önbelleğe al" demek oluyordu ve üretim derlemesinde sayfa
+// DYNAMIC_SERVER_USAGE ile 500 veriyordu.
 
 const PAGE_SIZE = 24;
 

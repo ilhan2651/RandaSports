@@ -11,11 +11,10 @@ import { SportNav } from "@/components/sport-nav";
 import { StoryCard } from "@/components/story-card";
 import { findSport, getSports } from "@/lib/sports-nav";
 
-// Statik üretim yok: kök layout giriş durumu için çerez okuyor, çerez okuyan bir
-// sayfa önceden üretilemiyor. generateStaticParams ile bu sayfa yine de statik
-// üretilmeye çalışılıyordu ve üretimde DYNAMIC_SERVER_USAGE ile 500 veriyordu.
-// Sayfa zaten her istekte API'ye gidiyor; kaybedilen bir önbellek yok.
-export const revalidate = 60;
+// Önbellek yok, bilerek: bu sayfa searchParams okuyor (sayfalama ve süzgeçler) ve
+// sorgu dizesine bakan bir sayfa önceden üretilemiyor. Burada `revalidate` yazmak
+// Next'e "bunu önbelleğe al" demek oluyordu ve üretim derlemesinde sayfa
+// DYNAMIC_SERVER_USAGE ile 500 veriyordu.
 
 const PAGE_SIZE = 24;
 

@@ -10,7 +10,10 @@ import {
   getOpinionTeams,
 } from "@/lib/commentary";
 
-export const revalidate = 60;
+// Önbellek yok, bilerek: bu sayfa searchParams okuyor (sayfalama ve süzgeçler) ve
+// sorgu dizesine bakan bir sayfa önceden üretilemiyor. Burada `revalidate` yazmak
+// Next'e "bunu önbelleğe al" demek oluyordu ve üretim derlemesinde sayfa
+// DYNAMIC_SERVER_USAGE ile 500 veriyordu.
 
 const SITE_URL = process.env.SITE_URL ?? "http://localhost:3000";
 const PAGE_SIZE = 18;
