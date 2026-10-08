@@ -11,6 +11,10 @@ import { SportNav } from "@/components/sport-nav";
 import { StoryCard } from "@/components/story-card";
 import { findSport, getSports } from "@/lib/sports-nav";
 
+// Statik üretim yok: kök layout giriş durumu için çerez okuyor, çerez okuyan bir
+// sayfa önceden üretilemiyor. generateStaticParams ile bu sayfa yine de statik
+// üretilmeye çalışılıyordu ve üretimde DYNAMIC_SERVER_USAGE ile 500 veriyordu.
+// Sayfa zaten her istekte API'ye gidiyor; kaybedilen bir önbellek yok.
 export const revalidate = 60;
 
 const PAGE_SIZE = 24;
@@ -19,11 +23,6 @@ type Props = {
   params: Promise<{ sport: string }>;
   searchParams: Promise<{ page?: string }>;
 };
-
-export async function generateStaticParams() {
-  const sports = await getSports();
-  return sports.map((sport) => ({ sport: sport.slug }));
-}
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { sport } = await params;
