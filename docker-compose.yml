@@ -1,0 +1,15 @@
+services:
+  postgres:
+    image: postgres:17
+    container_name: randasports-db
+    environment:
+      POSTGRES_USER: randasports
+      POSTGRES_PASSWORD: randasports_dev
+      POSTGRES_DB: randasports
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+volumes:
+  pgdata:

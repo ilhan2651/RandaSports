@@ -1,0 +1,6 @@
+@RandaSports.Api_HostAddress = http://localhost:5122
+
+GET {{RandaSports.Api_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###

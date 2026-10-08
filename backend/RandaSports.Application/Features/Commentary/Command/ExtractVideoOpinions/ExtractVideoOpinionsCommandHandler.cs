@@ -1,0 +1,630 @@
+using System.Globalization;
+using System.Net;
+using System.Text.Json;
+using MediatR;
+using Microsoft.Extensions.Logging;
+using RandaSports.Application.Common.Matching;
+using RandaSports.Application.Common.Text;
+using RandaSports.Application.Common.Wrappers;
+using RandaSports.Application.Interfaces;
+using RandaSports.Application.Interfaces.Repositories;
+using RandaSports.Application.Interfaces.Services;
+using RandaSports.Domain.Entities;
+using RandaSports.Domain.Enums;
+
+namespace RandaSports.Application.Features.Commentary.Command.ExtractVideoOpinions;
+
+public sealed class ExtractVideoOpinionsCommandHandler(
+    IVideoRepository videoRepository,
+    IOpinionRepository opinionRepository,
+    ICommentatorRepository commentatorRepository,
+    IStoryRepository storyRepository,
+    ITeamMatcher teamMatcher,
+    ISportsReadRepository sportsReadRepository,
+    IGeminiClient geminiClient,
+    IUnitOfWork unitOfWork,
+    TimeProvider timeProvider,
+    ILogger<ExtractVideoOpinionsCommandHandler> logger)
+    : IRequestHandler<ExtractVideoOpinionsCommand, Result<int>>
+{
+    private const int TopicMaxLength = 200;
+    private const int SummaryMaxLength = 2000;
+    private const int QuoteMaxLength = 2000;
+    private const int PredictionMaxLength = 300;
+    private const int SpeakerLabelMaxLength = 100;
+    private const int QuoteMinLength = 15;
+    private const int SummaryMaxForVideo = 2000;
+
+    /// <summary>
+    /// Bu süreye kadar olan videolar tek konuşmacılı klip sayılıyor; başlıktaki isim
+    /// o klipte konuşan kişidir. Uzun programlarda başlık yalnızca bir konuğu anar,
+    /// o yüzden orada başlığa bakmıyoruz.
+    /// </summary>
+    private const int SingleSpeakerClipSeconds = 180;
+
+    /// <summary>
+    /// Bu güvenin altındaki atıflar onay ekranına düşüyor. Alt bant (0.95) ve başlık
+    /// (0.75-0.9) üstünde kalıyor, kulaktan duyma hitap (0.55-0.7) altında.
+    /// </summary>
+    private const double AutoApproveConfidence = 0.75;
+
+    /// <summary>
+    /// Sözlüğe yeni isim yazarken kabul edilen en kısa ad. Eşleştirmenin alt sınırından
+    /// yüksek: sözlüğe yazmak eşleştirmekten daha kalıcı bir karar, "Ali B" gibi
+    /// parçalar kayıt açmasın ("Ali Koç" 7 karakterle geçiyor).
+    /// </summary>
+    private const int MinNewNameLength = 7;
+
+    private const int MaxNewNameLength = 60;
+
+    /// <summary>
+    /// Otomatik onaylanan görüşleri insanın onayladıklarından ayırmak için not öneki.
+    /// Video yeniden işlenirse otomatik kayıtlar tazeleniyor, insanın dokunduğu
+    /// kayıtlara dokunulmuyor.
+    /// </summary>
+    private const string AutoReviewNotePrefix = "Otomatik onay";
+
+    public async Task<Result<int>> Handle(ExtractVideoOpinionsCommand request, CancellationToken cancellationToken)
+    {
+        var video = await videoRepository.GetWithChannelAsync(request.VideoId, cancellationToken);
+        if (video is null)
+            return Result<int>.Fail("Video bulunamadı.", HttpStatusCode.NotFound);
+
+        video.ProcessingAttempts++;
+
+        var (candidates, isChannelRoster) = await ResolveCandidatesAsync(video, cancellationToken);
+
+        // Branş adreslerini bir kez okuyup hem isteme hem de modelin cevabını
+        // doğrulamaya veriyoruz: model listede olmayan bir şey yazarsa atılıyor.
+        var sports = await sportsReadRepository.GetAllSportsAsync(cancellationToken);
+        var sportSlugs = sports.Select(x => x.Slug).ToList();
+        var channelSportSlugs = video.Channel.Sports.Select(x => x.Slug).ToList();
+
+        var prompt = OpinionPromptBuilder.Build(
+            video.Title,
+            video.Description,
+            candidates.Select(x => x.FullName).ToList(),
+            isChannelRoster,
+            sportSlugs,
+            channelSportSlugs);
+
+        var videoUrl = $"https://www.youtube.com/watch?v={video.YouTubeVideoId}";
+
+        string? json;
+        try
+        {
+            json = await geminiClient.GenerateJsonFromVideoAsync(prompt, videoUrl, cancellationToken);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            // Uygulama kapanıyor: denemeyi harcamadan çekiliyoruz, video sırada kalsın.
+            throw;
+        }
+        catch (Exception ex)
+        {
+            // İstisna buradan dışarı çıkarsa scope atılıyor ve yukarıdaki
+            // ProcessingAttempts++ hiç kaydedilmiyor; video sonsuza kadar aynı yere
+            // düşüyor. Zaman aşımı ve ağ hatası bu yüzden burada yakalanıyor.
+            logger.LogWarning(ex, "Gemini çağrısı başarısız ({VideoId}).", video.Id);
+            return await FailAsync(video, "Modele ulaşılamadı.", HttpStatusCode.BadGateway, cancellationToken);
+        }
+
+        if (string.IsNullOrWhiteSpace(json))
+            return await FailAsync(video, "Model videoya cevap vermedi.", HttpStatusCode.BadGateway, cancellationToken);
+
+        AiVideoAnalysis? analysis;
+        try
+        {
+            analysis = JsonSerializer.Deserialize<AiVideoAnalysis>(json);
+        }
+        catch (JsonException ex)
+        {
+            logger.LogWarning(ex, "Video cevabı okunamadı ({VideoId}).", video.Id);
+            return await FailAsync(video, "Model cevabı okunamadı.", HttpStatusCode.BadGateway, cancellationToken);
+        }
+
+        if (analysis is null)
+            return await FailAsync(video, "Model boş cevap döndürdü.", HttpStatusCode.BadGateway, cancellationToken);
+
+        video.AiSummary = Truncate(analysis.VideoSummary, SummaryMaxForVideo);
+
+        // Model videoyu izleyemediyse boş liste dönüyor; bu bir hata değil, atlanacak video.
+        if (analysis.Opinions.Count == 0)
+        {
+            video.ProcessingStatus = VideoProcessingStatus.Skipped;
+            video.ProcessingError = "Videoda alınacak görüş bulunamadı.";
+            video.ProcessedAt = timeProvider.GetUtcNow();
+            await unitOfWork.SaveChangesAsync(cancellationToken);
+            return Result<int>.Ok(0, video.ProcessingError);
+        }
+
+        await ClearPendingOpinionsAsync(video.Id, cancellationToken);
+
+        var clusterRefs = await storyRepository.GetRecentClusterRefsAsync(
+            timeProvider.GetUtcNow().AddDays(-request.StoryMatchDays),
+            cancellationToken);
+
+        var saved = 0;
+        var autoApproved = 0;
+
+        // Aynı video içinde aynı yeni isim birkaç görüşte geçebiliyor; iki kez
+        // oluşturmamak için bu turda eklenenleri burada tutuyoruz.
+        var newCommentators = new Dictionary<string, Commentator>(StringComparer.Ordinal);
+        var sportIdsBySlug = sports.ToDictionary(x => x.Slug, x => x.Id, StringComparer.OrdinalIgnoreCase);
+
+        foreach (var item in analysis.Opinions.Take(OpinionPromptBuilder.MaxOpinions))
+        {
+            var opinion = await BuildOpinionAsync(
+                video,
+                item,
+                candidates,
+                isChannelRoster,
+                clusterRefs,
+                newCommentators,
+                sportIdsBySlug,
+                cancellationToken);
+
+            if (opinion is null)
+                continue;
+
+            await opinionRepository.AddAsync(opinion, cancellationToken);
+            saved++;
+
+            if (opinion.Status == OpinionStatus.Approved)
+                autoApproved++;
+        }
+
+        video.ProcessingStatus = saved > 0 ? VideoProcessingStatus.Processed : VideoProcessingStatus.Skipped;
+        video.ProcessingError = saved > 0 ? null : "Görüşlerin hiçbiri kurallara uymadı.";
+        video.ProcessedAt = timeProvider.GetUtcNow();
+
+        await unitOfWork.SaveChangesAsync(cancellationToken);
+
+        logger.LogInformation(
+            "{Channel} — {Title}: {Count} görüş kaydedildi ({Auto} otomatik onaylandı, {Pending} onay bekliyor).",
+            video.Channel.Name,
+            video.Title,
+            saved,
+            autoApproved,
+            saved - autoApproved);
+
+        return Result<int>.Ok(saved);
+    }
+
+    /// <summary>
+    /// Kanalın kadrosu doluysa onu kullanıyoruz — bu kadro, onay ekranında insanın
+    /// doğruladığı isimlerden oluşuyor, yani güçlü bir ipucu. Kadro boşsa tüm
+    /// yorumcu sözlüğüne düşüyoruz; o zayıf bir liste olduğu için modele öyle söylüyoruz.
+    /// </summary>
+    private async Task<(List<Commentator> Candidates, bool IsChannelRoster)> ResolveCandidatesAsync(
+        Video video,
+        CancellationToken cancellationToken)
+    {
+        // Kadro güveni yalnızca doğrulanmış isimlere: otomatik eklenmiş bir isim
+        // yanlışsa, kadroya girip sonraki videolarda da yanlış eşleşme üretmesin.
+        var roster = video.Channel.RegularCommentators.Where(x => x.IsVerified).ToList();
+
+        if (roster.Count > 0)
+            return (roster, true);
+
+        return (await commentatorRepository.GetActiveAsync(cancellationToken), false);
+    }
+
+    /// <summary>
+    /// Video yeniden işlenirse eski görüşler tekrarlanmasın diye siliniyor. Bekleyenlerin
+    /// yanında otomatik onaylananlar da tazeleniyor — yoksa her yeniden işlemede aynı
+    /// görüş ikinci kez yayına girerdi. İnsanın onayladığı ya da reddettiği kayıtlara
+    /// dokunulmuyor.
+    /// </summary>
+    private async Task ClearPendingOpinionsAsync(Guid videoId, CancellationToken cancellationToken)
+    {
+        var existing = await opinionRepository.GetByVideoAsync(videoId, cancellationToken);
+
+        var temizlenecek = existing.Where(x =>
+            x.Status == OpinionStatus.Pending
+            || (x.Status == OpinionStatus.Approved
+                && x.ReviewNote?.StartsWith(AutoReviewNotePrefix, StringComparison.Ordinal) == true));
+
+        foreach (var opinion in temizlenecek)
+            opinionRepository.Delete(opinion);
+    }
+
+    private async Task<Opinion?> BuildOpinionAsync(
+        Video video,
+        AiVideoOpinion item,
+        IReadOnlyCollection<Commentator> candidates,
+        bool isChannelRoster,
+        List<StoryClusterRef> clusterRefs,
+        Dictionary<string, Commentator> newCommentators,
+        Dictionary<string, Guid> sportIdsBySlug,
+        CancellationToken cancellationToken)
+    {
+        // Muhabirin olay aktarımı ve sunucunun sorusu yayına girmiyor: ikisi de
+        // konuşmacının görüşü değil, biz görüş yayınlıyoruz.
+        if (!string.Equals(item.Kind?.Trim(), "gorus", StringComparison.OrdinalIgnoreCase)
+            && !string.IsNullOrWhiteSpace(item.Kind))
+        {
+            logger.LogInformation(
+                "Görüş olmadığı için atlandı ({Kind}): {Topic}",
+                item.Kind,
+                item.Topic);
+
+            return null;
+        }
+
+        var topic = Truncate(item.Topic, TopicMaxLength);
+        var summary = Truncate(item.Summary, SummaryMaxLength);
+        var quote = Truncate(item.Quote, QuoteMaxLength);
+
+        if (topic is null || summary is null || quote is null)
+            return null;
+
+        // Tek kelimelik "alıntı" işe yaramaz; modelin boş geçtiği alan olur.
+        if (quote.Length < QuoteMinLength)
+            return null;
+
+        var modelSpeaker = SpeakerMatcher.Match(item.Speaker, candidates);
+
+        // Kısa klipte başlıktaki isim modelin tahmininden üstün: model açıklamadaki
+        // konuk listesinden yanlış ismi seçebiliyor, başlıktaki isim ise o klibin sahibi.
+        var isClip = video.DurationSeconds is > 0 and <= SingleSpeakerClipSeconds;
+        var titleSpeaker = isClip
+            ? SpeakerMatcher.Match(SpeakerMatcher.ExtractTitleSpeaker(video.Title), candidates)
+            : null;
+
+        // İsmin nereden geldiği, modelin ne kadar emin olduğundan daha belirleyici.
+        var source = NormalizeSource(item.SpeakerSource);
+
+        // Başlıktaki isim çoğu zaman videonun KONUSUDUR, konuşanı değil:
+        // "...transferi | Clarke-Harris" başlığındaki oyuncu konuşmuyor. Bu yüzden
+        // başlık ve hitap, ancak kişinin o kanalda konuştuğu daha önce insan tarafından
+        // doğrulanmışsa (kanal kadrosu) isme bağlanıyor. Alt bant farklı: yayıncının
+        // konuşan kişinin yanına yazdığı isim, kadro olmasa da sağlam.
+        var commentator = source switch
+        {
+            "altbant" or "baslik" or "hitap" => titleSpeaker ?? modelSpeaker,
+            _ => null
+        };
+
+        // Sözlükte karşılığı yok ama ortada yazılı ya da duyulmuş bir isim var:
+        // kişiyi sözlüğe alıyoruz. Doğrulanmamış olarak giriyor — görüşü yayına
+        // çıksa bile kadro güveni kazanmıyor, admin onaylayana kadar.
+        if (commentator is null && source is "altbant" or "baslik" or "hitap")
+            commentator = await EnsureCommentatorAsync(
+                (isClip ? SpeakerMatcher.ExtractTitleSpeaker(video.Title) : null) ?? item.Speaker,
+                video,
+                newCommentators,
+                cancellationToken);
+
+        var speakerLabel = commentator is not null && titleSpeaker is not null
+            ? titleSpeaker.FullName
+            : item.Speaker;
+
+        if (commentator is not null && titleSpeaker is not null)
+            source = "baslik";
+
+        if (commentator is null && modelSpeaker is not null)
+            logger.LogInformation(
+                "İsim bağlanmadı ({Source}, kadro {Roster}): {Name} — {VideoTitle}",
+                source,
+                isChannelRoster ? "var" : "yok",
+                modelSpeaker.FullName,
+                video.Title);
+
+        if (titleSpeaker is not null && modelSpeaker is not null && titleSpeaker.Id != modelSpeaker.Id)
+            logger.LogInformation(
+                "Konuşmacı başlığa göre düzeltildi: model {Model} dedi, başlık {Title} diyor ({VideoTitle}).",
+                modelSpeaker.FullName,
+                titleSpeaker.FullName,
+                video.Title);
+
+        // Ne isim eşleşti ne de bir isim duyuldu: görüşü kime ait yazacağımızı bilmiyoruz.
+        if (commentator is null && string.IsNullOrWhiteSpace(speakerLabel))
+            return null;
+
+        var confidence = ResolveConfidence(commentator, source, isChannelRoster, item.SpeakerConfidence);
+
+        // İsim yazılı bir kanıta dayanıyorsa görüş doğrudan yayına giriyor; kulaktan
+        // duyma ya da belirsizse onay ekranına düşüyor.
+        var otomatik = commentator is not null && confidence >= AutoApproveConfidence;
+
+        var subjectText = string.Join(' ', item.Subjects);
+        var teams = await teamMatcher.MatchAsync($"{topic} {subjectText}", summary, cancellationToken);
+        var team = teams.FirstOrDefault(x => x.InTitle) ?? teams.FirstOrDefault();
+
+        return new Opinion
+        {
+            VideoId = video.Id,
+            CommentatorId = commentator?.Id,
+            SpeakerLabel = Truncate(speakerLabel, SpeakerLabelMaxLength),
+            SpeakerSource = source,
+            AttributionConfidence = confidence,
+            TeamId = team?.Id,
+
+            SportId = ResolveSportId(item.Sport, team, video, sportIdsBySlug),
+            StoryId = MatchStory(teams, clusterRefs),
+            Topic = topic,
+            Summary = summary,
+            Quote = quote,
+            TimestampSeconds = ParseTimestamp(item.Timestamp, video.DurationSeconds),
+            Stance = ParseStance(item.Stance),
+            Prediction = Truncate(item.Prediction, PredictionMaxLength),
+            IsQuoteVerified = false,
+            Status = otomatik ? OpinionStatus.Approved : OpinionStatus.Pending,
+            ReviewedAt = otomatik ? timeProvider.GetUtcNow() : null,
+            ReviewNote = otomatik
+                ? $"{AutoReviewNotePrefix} ({source}, güven {confidence.ToString("0.00", CultureInfo.InvariantCulture)})"
+                : null
+        };
+    }
+
+    /// <summary>
+    /// Görüşün branşı. Sıra önemli:
+    ///
+    /// 1. Modelin söylediği — videoyu izleyen o. Yalnızca bizim listemizde olan bir
+    ///    adres kabul ediliyor, uydurma değer atılıyor.
+    /// 2. Takımın branşı — model boş bıraktıysa. Zayıf bir kaynak: Fenerbahçe'nin
+    ///    hem futbol hem basketbol takımı var ama kayıtta tek branş duruyor.
+    /// 3. Kanalın tek branşı varsa o. Birden fazlaysa seçim yapmıyoruz; yanlış
+    ///    tahmin etmektense branşsız bırakmak daha iyi.
+    /// </summary>
+    private static Guid? ResolveSportId(
+        string? modelSport,
+        MatchedTeam? team,
+        Video video,
+        Dictionary<string, Guid> sportIdsBySlug)
+    {
+        if (!string.IsNullOrWhiteSpace(modelSport)
+            && sportIdsBySlug.TryGetValue(modelSport.Trim(), out var fromModel))
+            return fromModel;
+
+        if (team is not null)
+            return team.SportId;
+
+        var channelSports = video.Channel.Sports;
+
+        return channelSports.Count == 1 ? channelSports.First().Id : null;
+    }
+
+    /// <summary>
+    /// Sözlükte karşılığı bulunan isme modelin kendi güveninden bağımsız olarak
+    /// taban bir güven veriyoruz; bulunmayanın güveni modelin söylediğinden yukarı çıkmıyor.
+    /// </summary>
+    /// <summary>
+    /// Sözlükte olmayan konuşmacıyı kaydeder ve kanalın kadrosuna ekler. Yeni kayıt
+    /// doğrulanmamış (IsVerified = false) giriyor: görüşü yayına çıkabilir ama bir
+    /// sonraki videoda kadro güveni kazanmaz, önce admin onaylamalı.
+    ///
+    /// Ad makul bir kişi adına benzemiyorsa (unvan, rakam, tek kelime) kayıt açılmıyor;
+    /// görüş isimsiz kalıp onay ekranına düşüyor.
+    /// </summary>
+    private async Task<Commentator?> EnsureCommentatorAsync(
+        string? rawName,
+        Video video,
+        Dictionary<string, Commentator> newCommentators,
+        CancellationToken cancellationToken)
+    {
+        var name = CleanPersonName(rawName);
+
+        if (name is null)
+            return null;
+
+        var slug = TextNormalizer.Slugify(name, SpeakerLabelMaxLength);
+
+        if (string.IsNullOrEmpty(slug))
+            return null;
+
+        if (newCommentators.TryGetValue(slug, out var pending))
+            return pending;
+
+        // Başlıkta geçen isim çoğu zaman haberin KONUSUDUR: sporcu ya da takım.
+        // Sözlüğe böyle bir isim girerse hem yanlış atıf üretiyor hem de kanal
+        // kadrosunu kirletiyor. Sporcu/takım kayıtlarıyla eşleşeni hiç almıyoruz.
+        if (await IsSportsSubjectAsync(slug, cancellationToken))
+        {
+            logger.LogInformation(
+                "İsim sözlüğe alınmadı, sporcu/takım kaydıyla eşleşti: {Name} — {VideoTitle}",
+                name,
+                video.Title);
+
+            return null;
+        }
+
+        // Sözlükte pasif ya da aday listesine girmemiş bir kayıt olabilir.
+        var existing = await commentatorRepository.GetBySlugAsync(slug, cancellationToken);
+
+        if (existing is null)
+        {
+            existing = new Commentator
+            {
+                FullName = name,
+                Slug = slug,
+                IsVerified = false
+            };
+
+            await commentatorRepository.AddAsync(existing, cancellationToken);
+
+            logger.LogInformation(
+                "Sözlüğe yeni konuşmacı eklendi (doğrulanmamış): {Name} — {Channel} / {VideoTitle}",
+                name,
+                video.Channel.Name,
+                video.Title);
+        }
+
+        if (video.Channel.RegularCommentators.All(x => x.Id != existing.Id))
+            video.Channel.RegularCommentators.Add(existing);
+
+        newCommentators[slug] = existing;
+        return existing;
+    }
+
+    /// <summary>
+    /// İsim bir sporcu ya da takım mı. Her ikisinin de kısa adı aynı
+    /// <see cref="TextNormalizer.Slugify"/> ile üretildiği için kısa ad üzerinden
+    /// karşılaştırıyoruz; isim normalleştirme farklarına takılmıyor.
+    /// </summary>
+    private async Task<bool> IsSportsSubjectAsync(string slug, CancellationToken cancellationToken)
+    {
+        if (await sportsReadRepository.GetAthleteBySlugAsync(slug, cancellationToken) is not null)
+            return true;
+
+        return await sportsReadRepository.GetTeamBySlugAsync(slug, cancellationToken) is not null;
+    }
+
+    /// <summary>
+    /// Modelin söylediği her metin kişi adı değil: "Spor Yorumcusu", "Sunucu",
+    /// "Bölüm 3" gibi şeyler geliyor. Sözlüğe yalnızca ad-soyad biçimindekileri alıyoruz.
+    /// </summary>
+    private static string? CleanPersonName(string? value)
+    {
+        var name = value?.Trim();
+
+        if (string.IsNullOrEmpty(name) || name.Length is < MinNewNameLength or > MaxNewNameLength)
+            return null;
+
+        if (name.Any(char.IsDigit))
+            return null;
+
+        var words = name.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+
+        // Tek kelimelik ad ("Rıdvan", "Hoca") yanlış kişiye bağlanmaya çok açık.
+        if (words.Length is < 2 or > 4)
+            return null;
+
+        // Her parça harfle başlamalı: unvan kısaltmaları ve etiketler elensin.
+        return words.All(x => char.IsLetter(x[0])) ? name : null;
+    }
+
+    /// <summary>Kaynak adını sabit bir kümeye indiriyoruz; model serbest metin yazabiliyor.</summary>
+    private static string NormalizeSource(string? value) =>
+        value?.Trim().ToLowerInvariant() switch
+        {
+            "altbant" or "alt bant" or "ekran" or "lowerthird" or "lower third" => "altbant",
+            "baslik" or "başlık" or "title" => "baslik",
+            "hitap" or "address" => "hitap",
+            "aciklama" or "açıklama" or "description" => "aciklama",
+            _ => "tahmin"
+        };
+
+    /// <summary>
+    /// Güven, ismin nereden geldiğine göre veriliyor. Yazılı kanıt (alt bant, başlık)
+    /// en üstte; kulaktan duyma hitap ortada; tahmin ve konuk listesi en altta.
+    /// </summary>
+    private static double ResolveConfidence(
+        Commentator? commentator,
+        string source,
+        bool isChannelRoster,
+        double? modelConfidence)
+    {
+        var reported = Math.Clamp(modelConfidence ?? 0.3, 0, 1);
+
+        if (commentator is null)
+            return Math.Min(reported, 0.4);
+
+        return source switch
+        {
+            // Yayıncının konuşanın yanına yazdığı isim: en sağlam kanıt.
+            "altbant" => 0.95,
+
+            // Başlıktaki isim, kişi kanalın doğrulanmış kadrosundaysa neredeyse kesin;
+            // kadroda değilse haberin konusu olma ihtimali var ama yine de yazılı.
+            "baslik" => isChannelRoster ? 0.9 : 0.75,
+
+            // Kulaktan duyma: "Buyurun Ahmet Bey". Kadroda bile olsa onay istiyoruz.
+            "hitap" => isChannelRoster ? 0.7 : 0.55,
+
+            _ => Math.Min(reported, 0.4)
+        };
+    }
+
+    /// <summary>
+    /// Görüşü habere bağlar: kümeleme anahtarındaki takım slug'ı görüşteki takımla
+    /// aynıysa en güncel haber seçilir.
+    /// </summary>
+    private static Guid? MatchStory(List<MatchedTeam> teams, List<StoryClusterRef> clusterRefs)
+    {
+        if (teams.Count == 0 || clusterRefs.Count == 0)
+            return null;
+
+        var wanted = teams
+            .Select(x => (Sport: x.SportSlug, Slug: x.Slug))
+            .ToHashSet();
+
+        // clusterRefs en yeniden eskiye geliyor; ilk eşleşme en güncel haber.
+        foreach (var reference in clusterRefs)
+        {
+            var parts = reference.ClusterKey.Split('|');
+            if (parts.Length < 3)
+                continue;
+
+            var sport = parts[0];
+
+            foreach (var entity in parts[2].Split('+', StringSplitOptions.RemoveEmptyEntries))
+            {
+                if (wanted.Contains((sport, entity)))
+                    return reference.Id;
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>"738", "12:18" ve "1:02:18" biçimlerini saniyeye çevirir.</summary>
+    private static int ParseTimestamp(string? value, int? durationSeconds)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return 0;
+
+        var trimmed = value.Trim();
+        var seconds = 0;
+
+        if (trimmed.Contains(':'))
+        {
+            foreach (var part in trimmed.Split(':'))
+            {
+                if (!int.TryParse(part, CultureInfo.InvariantCulture, out var number) || number < 0)
+                    return 0;
+
+                seconds = seconds * 60 + number;
+            }
+        }
+        else if (!int.TryParse(trimmed, CultureInfo.InvariantCulture, out seconds) || seconds < 0)
+        {
+            return 0;
+        }
+
+        // Video süresini aşan an uydurmadır; başa alıyoruz.
+        if (durationSeconds is > 0 && seconds > durationSeconds)
+            return 0;
+
+        return seconds;
+    }
+
+    private static Stance ParseStance(string? value) =>
+        value?.Trim().ToLowerInvariant() switch
+        {
+            "olumlu" or "positive" => Stance.Positive,
+            "olumsuz" or "negative" => Stance.Negative,
+            _ => Stance.Neutral
+        };
+
+    private async Task<Result<int>> FailAsync(
+        Video video,
+        string message,
+        HttpStatusCode statusCode,
+        CancellationToken cancellationToken)
+    {
+        video.ProcessingError = message;
+        await unitOfWork.SaveChangesAsync(cancellationToken);
+        return Result<int>.Fail(message, statusCode);
+    }
+
+    private static string? Truncate(string? value, int maxLength)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return null;
+
+        var trimmed = value.Trim();
+        return trimmed.Length <= maxLength ? trimmed : trimmed[..maxLength];
+    }
+}

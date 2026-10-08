@@ -1,0 +1,85 @@
+@import "tailwindcss";
+
+@theme {
+  --color-ink: #09090b;
+  --color-surface: #101014;
+  --color-raised: #17171c;
+  --color-line: #26262c;
+  --color-fog: #9a9aa5;
+  --color-chalk: #fafaf9;
+  --color-amber: #ff7a1a;
+  --color-amber-soft: #ffb066;
+  --color-live: #ff3b30;
+
+  --font-display: var(--font-display), ui-sans-serif, system-ui, sans-serif;
+  --font-body: var(--font-body), ui-sans-serif, system-ui, sans-serif;
+
+  --animate-marquee: marquee 40s linear infinite;
+  --animate-pulse-live: pulse-live 1.6s ease-in-out infinite;
+}
+
+@keyframes marquee {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-50%);
+  }
+}
+
+@keyframes pulse-live {
+  0%,
+  100% {
+    opacity: 1;
+    box-shadow: 0 0 0 0 rgb(255 59 48 / 0.6);
+  }
+  50% {
+    opacity: 0.85;
+    box-shadow: 0 0 0 6px rgb(255 59 48 / 0);
+  }
+}
+
+html {
+  color-scheme: dark;
+}
+
+body {
+  background-color: var(--color-ink);
+  color: var(--color-chalk);
+  font-family: var(--font-body);
+  -webkit-font-smoothing: antialiased;
+}
+
+::selection {
+  background-color: var(--color-amber);
+  color: #0b0b0d;
+}
+
+/* İnce, koyu zeminde kaybolmayan kaydırma çubuğu */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--color-ink);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--color-line);
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #3a3a42;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

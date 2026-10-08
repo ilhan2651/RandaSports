@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk.Worker">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UserSecretsId>dotnet-RandaSports.Worker-4b834c11-226e-411b-967e-8c1a008e3551</UserSecretsId>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\RandaSports.Application\RandaSports.Application.csproj" />
+    <ProjectReference Include="..\RandaSports.Persistence\RandaSports.Persistence.csproj" />
+    <ProjectReference Include="..\RandaSports.Infrastructure\RandaSports.Infrastructure.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.12" />
+  </ItemGroup>
+
+</Project>

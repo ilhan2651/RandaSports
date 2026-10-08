@@ -1,0 +1,8 @@
+<Solution>
+  <Project Path="RandaSports.Api/RandaSports.Api.csproj" />
+  <Project Path="RandaSports.Application/RandaSports.Application.csproj" />
+  <Project Path="RandaSports.Domain/RandaSports.Domain.csproj" />
+  <Project Path="RandaSports.Infrastructure/RandaSports.Infrastructure.csproj" />
+  <Project Path="RandaSports.Persistence/RandaSports.Persistence.csproj" />
+  <Project Path="RandaSports.Worker/RandaSports.Worker.csproj" />
+</Solution>
