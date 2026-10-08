@@ -91,8 +91,9 @@ cp .env.example .env     # Windows cmd: copy .env.example .env
 docker compose up -d postgres
 ```
 
-`.env` compose'un okuduğu tek sır kaynağı; veritabanı kullanıcı adı ve parolası
-oradan geliyor.
+`.env` compose'un okuduğu tek sır kaynağı. İçindeki `COMPOSE_FILE` satırı hangi
+compose dosyalarının okunacağını belirliyor: yerelde projenin kendi Postgres'i
+kalkıyor, sunucuda paylaşılan altyapıya bağlanılıyor.
 
 **2. Ayar dosyaları**
 
@@ -166,9 +167,11 @@ Yayına almadan önce:
 
 ## Dağıtım
 
-Tüm yığın tek `docker-compose.yml` içinde: PostgreSQL, API, worker ve site.
-Sunucuda ayrıca Caddy çalışıyor — sertifikayı Let's Encrypt'ten kendisi alıp
-kendisi yeniliyor.
+Üç compose dosyası var: `docker-compose.yml` uygulamanın kendisi (API, worker,
+site), `docker-compose.local.yml` yerel geliştirme için Postgres ekliyor,
+`docker-compose.prod.yml` sunucudaki paylaşılan Caddy ve Postgres'e bağlıyor.
+Hangisinin okunacağını `.env` içindeki `COMPOSE_FILE` satırı söylüyor, bu yüzden
+çalıştırma komutu iki ortamda da aynı.
 
 ```bash
 # sunucuda, ilk kurulumdan sonra her dağıtım:

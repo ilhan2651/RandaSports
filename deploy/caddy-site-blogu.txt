@@ -1,0 +1,14 @@
+randasports.randaprojects.tr {
+	encode zstd gzip
+
+	# Yalnızca site yayınlanıyor. API dışarı açılmıyor: bütün sayfalar sunucu
+	# tarafında üretildiği için API'ye Docker ağı üzerinden gidiliyor.
+	reverse_proxy randasports-web:3000
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		-Server
+	}
+}

@@ -1,59 +1,38 @@
-# Tüm yığın tek dosyada: veritabanı, API, worker ve site.
+# Uygulamanın kendisi: API, worker ve site. Veritabanı burada DEĞİL — yerelde ve
+# sunucuda farklı yerden geliyor, onu ortam dosyaları belirliyor:
 #
-# Yerel geliştirmede yalnızca veritabanını ayağa kaldırmak yetiyor:
-#     docker compose up -d postgres
-# Sunucuda hepsi:
-#     docker compose up -d --build
+#   Yerelde   .env içinde  COMPOSE_FILE=docker-compose.yml:docker-compose.local.yml
+#             -> kendi Postgres konteynerini de kaldırıyor.
 #
-# Sırlar bu dosyada DEĞİL, yanındaki .env dosyasında duruyor (.gitignore'da).
+#   Sunucuda  .env içinde  COMPOSE_FILE=docker-compose.yml:docker-compose.prod.yml
+#             -> paylaşılan infra Postgres'ine ve Caddy'sine bağlanıyor.
+#
+# İki yerde de çalıştırma komutu aynı:  docker compose up -d --build
+#
+# Sırlar bu dosyada değil, yanındaki .env dosyasında (.gitignore'da).
 
 name: randasports
 
 services:
-  postgres:
-    image: postgres:17
-    container_name: randasports-db
-    restart: unless-stopped
-    environment:
-      POSTGRES_USER: ${POSTGRES_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      POSTGRES_DB: ${POSTGRES_DB}
-    # Yalnızca makinenin kendisine bağlı. Başına 127.0.0.1 yazmazsan Docker
-    # portu ufkun dışına, doğrudan internete açıyor — güvenlik duvarını da
-    # delerek. Veritabanının dışarıdan erişilebilir olması gerekmiyor.
-    ports:
-      - "127.0.0.1:5432:5432"
-    volumes:
-      - pgdata:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
-      interval: 5s
-      timeout: 5s
-      retries: 20
-
   api:
     build:
       context: ./backend
       dockerfile: RandaSports.Api/Dockerfile
     container_name: randasports-api
     restart: unless-stopped
-    depends_on:
-      postgres:
-        condition: service_healthy
     environment:
-      # Çift alt çizgi, .NET yapılandırmasında iki nokta yerine geçiyor:
+      # Çift alt çizgi .NET yapılandırmasında iki nokta yerine geçiyor:
       # ConnectionStrings__Default  ->  ConnectionStrings:Default
-      ConnectionStrings__Default: "Host=postgres;Port=5432;Database=${POSTGRES_DB};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}"
+      ConnectionStrings__Default: "Host=${DB_HOST:-postgres};Port=${DB_PORT:-5432};Database=${POSTGRES_DB};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}"
       Gemini__ApiKey: ${GEMINI_API_KEY}
       Jwt__Key: ${JWT_KEY}
       # Boş bırakılırsa yönetici tohumlaması atlanıyor. İlk girişten sonra
-      # bu üçünü .env'den silmek en temizi.
+      # bu üçünü .env'den boşaltmak en temizi.
       AdminSeed__Email: ${ADMIN_EMAIL:-}
       AdminSeed__Password: ${ADMIN_PASSWORD:-}
       AdminSeed__FullName: ${ADMIN_FULLNAME:-}
       Cors__AllowedOrigins__0: ${SITE_URL}
-    # Dışarı açılmıyor; siteye ters vekil üzerinden gidiliyor. Buradaki yayın
-    # yalnızca sunucudan curl ile bakabilmek için.
+    # Dışarı açılmıyor; yalnızca sunucunun kendisinden curl ile bakmak için.
     ports:
       - "127.0.0.1:5122:8080"
 
@@ -64,13 +43,11 @@ services:
     container_name: randasports-worker
     restart: unless-stopped
     depends_on:
-      postgres:
-        condition: service_healthy
       # Migration'ları API uyguluyor; worker şemayı hazır bulsun diye sonra kalkıyor.
       api:
         condition: service_started
     environment:
-      ConnectionStrings__Default: "Host=postgres;Port=5432;Database=${POSTGRES_DB};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}"
+      ConnectionStrings__Default: "Host=${DB_HOST:-postgres};Port=${DB_PORT:-5432};Database=${POSTGRES_DB};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}"
       Gemini__ApiKey: ${GEMINI_API_KEY}
       ApiSports__ApiKey: ${APISPORTS_API_KEY}
 
@@ -80,14 +57,12 @@ services:
     container_name: randasports-web
     restart: unless-stopped
     depends_on:
-      - api
+      api:
+        condition: service_started
     environment:
-      # Site, API'ye Docker ağı üzerinden gidiyor; bu adres tarayıcıya hiç
-      # ulaşmıyor çünkü tüm çağrılar sunucu bileşenlerinden yapılıyor.
+      # Site API'ye Docker ağı üzerinden gidiyor. Bu adres tarayıcıya hiç
+      # ulaşmıyor: bütün çağrılar sunucu bileşenlerinden yapılıyor.
       API_BASE_URL: http://api:8080
       SITE_URL: ${SITE_URL}
     ports:
       - "127.0.0.1:3000:3000"
-
-volumes:
-  pgdata:

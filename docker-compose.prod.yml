@@ -1,30 +1,27 @@
-# Sunucuya özgü ek. Yerelde kullanılmıyor.
+# Sunucu: paylaşılan altyapıya bağlanma.
 #
-# Sunucudaki .env dosyasında şu satır bulunduğu için `docker compose` komutları
-# bu dosyayı kendiliğinden okuyor, her seferinde -f yazmaya gerek kalmıyor:
+# Sunucuda zaten ~/infra altında ortak bir Caddy ve ortak bir Postgres çalışıyor,
+# ikisi de `web` adlı dış ağda. RandaSports kendi Caddy'sini ve Postgres'ini
+# getirmiyor — aynı ağa katılıyor:
 #
-#     COMPOSE_FILE=docker-compose.yml:docker-compose.prod.yml
+#   * api ve worker, veritabanına `infra-postgres-1` adıyla ulaşıyor
+#     (.env içindeki DB_HOST bunu söylüyor),
+#   * Caddy de siteye `randasports-web:3000` adıyla ulaşıyor.
+#
+# Caddy tarafındaki site bloğu ~/infra/caddy/Caddyfile içinde duruyor, bu
+# depoda değil — orası bütün projelerin ortak dosyası.
 
 services:
-  caddy:
-    image: caddy:2-alpine
-    container_name: randasports-caddy
-    restart: unless-stopped
-    depends_on:
-      - web
-    environment:
-      SITE_DOMAIN: ${SITE_DOMAIN}
-      ACME_EMAIL: ${ACME_EMAIL}
-    ports:
-      - "80:80"
-      - "443:443"
-    volumes:
-      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
-      # Sertifikalar burada duruyor. Bu birimi silersen Caddy yeni sertifika
-      # ister; Let's Encrypt'in haftalık sınırına takılmamak için silme.
-      - caddy_data:/data
-      - caddy_config:/config
+  api:
+    networks: [default, web]
 
-volumes:
-  caddy_data:
-  caddy_config:
+  worker:
+    networks: [default, web]
+
+  web:
+    networks: [default, web]
+
+networks:
+  # `docker network create web` ile zaten var; compose onu oluşturmuyor, buluyor.
+  web:
+    external: true
