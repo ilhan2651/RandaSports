@@ -1,15 +1,93 @@
+# Tüm yığın tek dosyada: veritabanı, API, worker ve site.
+#
+# Yerel geliştirmede yalnızca veritabanını ayağa kaldırmak yetiyor:
+#     docker compose up -d postgres
+# Sunucuda hepsi:
+#     docker compose up -d --build
+#
+# Sırlar bu dosyada DEĞİL, yanındaki .env dosyasında duruyor (.gitignore'da).
+
+name: randasports
+
 services:
   postgres:
     image: postgres:17
     container_name: randasports-db
+    restart: unless-stopped
     environment:
-      POSTGRES_USER: randasports
-      POSTGRES_PASSWORD: randasports_dev
-      POSTGRES_DB: randasports
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    # Yalnızca makinenin kendisine bağlı. Başına 127.0.0.1 yazmazsan Docker
+    # portu ufkun dışına, doğrudan internete açıyor — güvenlik duvarını da
+    # delerek. Veritabanının dışarıdan erişilebilir olması gerekmiyor.
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  api:
+    build:
+      context: ./backend
+      dockerfile: RandaSports.Api/Dockerfile
+    container_name: randasports-api
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      # Çift alt çizgi, .NET yapılandırmasında iki nokta yerine geçiyor:
+      # ConnectionStrings__Default  ->  ConnectionStrings:Default
+      ConnectionStrings__Default: "Host=postgres;Port=5432;Database=${POSTGRES_DB};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}"
+      Gemini__ApiKey: ${GEMINI_API_KEY}
+      Jwt__Key: ${JWT_KEY}
+      # Boş bırakılırsa yönetici tohumlaması atlanıyor. İlk girişten sonra
+      # bu üçünü .env'den silmek en temizi.
+      AdminSeed__Email: ${ADMIN_EMAIL:-}
+      AdminSeed__Password: ${ADMIN_PASSWORD:-}
+      AdminSeed__FullName: ${ADMIN_FULLNAME:-}
+      Cors__AllowedOrigins__0: ${SITE_URL}
+    # Dışarı açılmıyor; siteye ters vekil üzerinden gidiliyor. Buradaki yayın
+    # yalnızca sunucudan curl ile bakabilmek için.
+    ports:
+      - "127.0.0.1:5122:8080"
+
+  worker:
+    build:
+      context: ./backend
+      dockerfile: RandaSports.Worker/Dockerfile
+    container_name: randasports-worker
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      # Migration'ları API uyguluyor; worker şemayı hazır bulsun diye sonra kalkıyor.
+      api:
+        condition: service_started
+    environment:
+      ConnectionStrings__Default: "Host=postgres;Port=5432;Database=${POSTGRES_DB};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}"
+      Gemini__ApiKey: ${GEMINI_API_KEY}
+      ApiSports__ApiKey: ${APISPORTS_API_KEY}
+
+  web:
+    build:
+      context: ./frontend
+    container_name: randasports-web
+    restart: unless-stopped
+    depends_on:
+      - api
+    environment:
+      # Site, API'ye Docker ağı üzerinden gidiyor; bu adres tarayıcıya hiç
+      # ulaşmıyor çünkü tüm çağrılar sunucu bileşenlerinden yapılıyor.
+      API_BASE_URL: http://api:8080
+      SITE_URL: ${SITE_URL}
+    ports:
+      - "127.0.0.1:3000:3000"
 
 volumes:
   pgdata:

@@ -1,0 +1,31 @@
+# Satır sonu kuralı depoda duruyor: her makinede aynı davransın diye. Kişisel
+# core.autocrlf ayarları bu dosyanın önüne geçmiyor.
+#
+# Hem depoda hem çalışma kopyasında LF. Depo Windows'ta geliştirilip Linux
+# konteynerlerinde çalışıyor; CRLF ile giden bir Caddyfile ya da kabuk betiği
+# konteynerde satır sonundaki \r yüzünden bozuluyor ve hata hiç alakasız
+# görünüyor ("command not found" gibi).
+* text=auto eol=lf
+
+# Git'in metin sanıp dokunmaması gerekenler.
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.gif   binary
+*.ico   binary
+*.webp  binary
+*.avif  binary
+*.woff  binary
+*.woff2 binary
+*.ttf   binary
+*.otf   binary
+*.eot   binary
+*.pdf   binary
+*.zip   binary
+*.gz    binary
+*.mp4   binary
+*.webm  binary
+
+# Windows'un kendi betikleri CRLF istiyor.
+*.bat text eol=crlf
+*.cmd text eol=crlf

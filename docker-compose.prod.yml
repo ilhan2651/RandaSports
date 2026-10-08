@@ -1,0 +1,30 @@
+# Sunucuya özgü ek. Yerelde kullanılmıyor.
+#
+# Sunucudaki .env dosyasında şu satır bulunduğu için `docker compose` komutları
+# bu dosyayı kendiliğinden okuyor, her seferinde -f yazmaya gerek kalmıyor:
+#
+#     COMPOSE_FILE=docker-compose.yml:docker-compose.prod.yml
+
+services:
+  caddy:
+    image: caddy:2-alpine
+    container_name: randasports-caddy
+    restart: unless-stopped
+    depends_on:
+      - web
+    environment:
+      SITE_DOMAIN: ${SITE_DOMAIN}
+      ACME_EMAIL: ${ACME_EMAIL}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      # Sertifikalar burada duruyor. Bu birimi silersen Caddy yeni sertifika
+      # ister; Let's Encrypt'in haftalık sınırına takılmamak için silme.
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  caddy_data:
+  caddy_config:

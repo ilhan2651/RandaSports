@@ -87,8 +87,12 @@ Gerekenler: .NET 10 SDK, Node 20+, Docker (ya da yerelde çalışan bir PostgreS
 **1. Veritabanı**
 
 ```bash
-docker compose up -d
+cp .env.example .env     # Windows cmd: copy .env.example .env
+docker compose up -d postgres
 ```
+
+`.env` compose'un okuduğu tek sır kaynağı; veritabanı kullanıcı adı ve parolası
+oradan geliyor.
 
 **2. Ayar dosyaları**
 
@@ -160,6 +164,24 @@ Yayına almadan önce:
 
 ---
 
+## Dağıtım
+
+Tüm yığın tek `docker-compose.yml` içinde: PostgreSQL, API, worker ve site.
+Sunucuda ayrıca Caddy çalışıyor — sertifikayı Let's Encrypt'ten kendisi alıp
+kendisi yeniliyor.
+
+```bash
+# sunucuda, ilk kurulumdan sonra her dağıtım:
+git pull
+docker compose up -d --build
+```
+
+Sıfırdan kurulum adım adım: [`deploy/SUNUCU.md`](deploy/SUNUCU.md)
+
+Veritabanı, API ve site portları yalnızca `127.0.0.1`'e bağlı; dışarıya açık
+olan tek şey Caddy'nin 80 ve 443'ü. Docker yayınladığı portlar için güvenlik
+duvarı kurallarını atladığından bu önek önemli, kaldırılmamalı.
+
 ## Kararlar ve sınırlar
 
 Bazı şeyler kasıtlı olarak yapılmadı:
@@ -180,7 +202,6 @@ Bazı şeyler kasıtlı olarak yapılmadı:
 - [ ] Diğer branşlar için İngilizce yorum kaynakları
 - [ ] Takım logolarının tamamlanması — şu an basketbolda büyük kısmı eksik
 - [ ] KVKK metinleri
-- [ ] Sunucuya dağıtım
 
 ---
 
