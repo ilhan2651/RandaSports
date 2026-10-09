@@ -145,7 +145,20 @@ public sealed class GeminiClient(
                 return (null, true);
             }
 
-            logger.LogError("Gemini hatası ({StatusCode}): {Error}", statusCode, error);
+            // Geçici teşhis: aynı istek curl ile 200 dönerken uygulamadan 403
+            // geliyor. Anahtarın kendisi loga yazılmıyor, yalnızca uzunluğu —
+            // boş ya da kırpılmış gelip gelmediğini görmek için bu yetiyor.
+            logger.LogError(
+                "Gemini hatası ({StatusCode}): {Error} | adres={Uri} | model={Model} | anahtarUzunluk={KeyLength} | videoVar={HasVideo} | aralik={Start}-{End}",
+                statusCode,
+                error,
+                response.RequestMessage?.RequestUri,
+                _options.Model,
+                _options.ApiKey?.Length ?? -1,
+                videoUrl is not null,
+                startSeconds?.ToString() ?? "-",
+                endSeconds?.ToString() ?? "-");
+
             return (null, false);
         }
 
