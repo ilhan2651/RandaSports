@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { approveOpinion, attachSpeaker, rejectOpinion, cikisYap } from "@/app/admin/actions";
+import { approveOpinion, attachSpeaker, rejectOpinion } from "@/app/admin/actions";
 import { AdminForm } from "@/components/admin-form";
 import {
   clockTime,
@@ -61,28 +61,6 @@ export default async function AdminOpinionsPage({ searchParams }: Params) {
             {tab.label}
           </Link>
         ))}
-
-        <Link
-          href="/admin/kanallar"
-          className="ml-auto rounded-lg border border-line px-3 py-1.5 font-display text-xs font-bold uppercase tracking-widest text-fog transition-colors hover:border-amber/40 hover:text-chalk"
-        >
-          Kanallar
-        </Link>
-        <Link
-          href="/admin/yorumcular"
-          className="rounded-lg border border-line px-3 py-1.5 font-display text-xs font-bold uppercase tracking-widest text-fog transition-colors hover:border-amber/40 hover:text-chalk"
-        >
-          Yorumcu onayı
-        </Link>
-
-        <form action={cikisYap} className="ml-auto">
-          <button
-            type="submit"
-            className="rounded-lg border border-line px-3 py-1.5 font-display text-xs font-bold uppercase tracking-widest text-fog transition-colors hover:border-live/40 hover:text-live"
-          >
-            Çıkış
-          </button>
-        </form>
       </nav>
 
       <p className="mt-5 text-sm text-fog">

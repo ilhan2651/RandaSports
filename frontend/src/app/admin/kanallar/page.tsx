@@ -1,11 +1,9 @@
 import type { Metadata } from "next";
-import Link from "next/link";
 import {
   addChannel,
   scanChannel,
   setChannelSports,
   toggleChannel,
-  cikisYap,
 } from "@/app/admin/actions";
 import { AdminForm } from "@/components/admin-form";
 import { SportPicker } from "@/components/sport-picker";
@@ -39,29 +37,6 @@ export default async function AdminChannelsPage({ searchParams }: Params) {
         </p>
       </header>
 
-      <nav className="mt-6 flex gap-2">
-        <Link
-          href="/admin/yorumlar"
-          className="rounded-lg border border-line px-3 py-1.5 font-display text-xs font-bold uppercase tracking-widest text-fog transition-colors hover:border-amber/40 hover:text-chalk"
-        >
-          Görüş onayı
-        </Link>
-        <Link
-          href="/admin/yorumcular"
-          className="rounded-lg border border-line px-3 py-1.5 font-display text-xs font-bold uppercase tracking-widest text-fog transition-colors hover:border-amber/40 hover:text-chalk"
-        >
-          Yorumcu onayı
-        </Link>
-
-        <form action={cikisYap} className="ml-auto">
-          <button
-            type="submit"
-            className="rounded-lg border border-line px-3 py-1.5 font-display text-xs font-bold uppercase tracking-widest text-fog transition-colors hover:border-live/40 hover:text-live"
-          >
-            Çıkış
-          </button>
-        </form>
-      </nav>
 
       <p className="mt-4 max-w-[70ch] text-sm leading-relaxed text-fog">
         Kanalın işlediği branşları seç — birden fazla olabilir. Bu seçim görüşün

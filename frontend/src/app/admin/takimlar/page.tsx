@@ -1,6 +1,5 @@
 import type { Metadata } from "next";
-import Link from "next/link";
-import { cikisYap, updateTeamLogo } from "@/app/admin/actions";
+import { updateTeamLogo } from "@/app/admin/actions";
 import { AdminForm } from "@/components/admin-form";
 import { EntityAvatar } from "@/components/entity-avatar";
 import { authHeader } from "@/lib/auth";
@@ -47,35 +46,6 @@ export default async function AdminTeamsPage({ searchParams }: Params) {
         </p>
       </header>
 
-      <nav className="mt-6 flex flex-wrap gap-2">
-        <Link
-          href="/admin/yorumlar"
-          className="rounded-lg border border-line px-3 py-1.5 font-display text-xs font-bold uppercase tracking-widest text-fog transition-colors hover:border-amber/40 hover:text-chalk"
-        >
-          Görüş onayı
-        </Link>
-        <Link
-          href="/admin/yorumcular"
-          className="rounded-lg border border-line px-3 py-1.5 font-display text-xs font-bold uppercase tracking-widest text-fog transition-colors hover:border-amber/40 hover:text-chalk"
-        >
-          Yorumcular
-        </Link>
-        <Link
-          href="/admin/kanallar"
-          className="rounded-lg border border-line px-3 py-1.5 font-display text-xs font-bold uppercase tracking-widest text-fog transition-colors hover:border-amber/40 hover:text-chalk"
-        >
-          Kanallar
-        </Link>
-
-        <form action={cikisYap} className="ml-auto">
-          <button
-            type="submit"
-            className="rounded-lg border border-line px-3 py-1.5 font-display text-xs font-bold uppercase tracking-widest text-fog transition-colors hover:border-live/40 hover:text-live"
-          >
-            Çıkış
-          </button>
-        </form>
-      </nav>
 
       <p className="mt-6 font-display text-xs font-bold uppercase tracking-widest text-fog">
         {teams.length} takım
