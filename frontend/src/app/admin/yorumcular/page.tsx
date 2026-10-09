@@ -5,6 +5,7 @@ import {
   verifyCommentator,
 } from "@/app/admin/actions";
 import { AdminForm } from "@/components/admin-form";
+import { youTubeWatchUrl } from "@/lib/commentary-shared";
 import { EntityAvatar } from "@/components/entity-avatar";
 import {
   getCommentators,
@@ -185,7 +186,7 @@ function PersonCard({ person }: { person: UnverifiedCommentator }) {
               </p>
               <p className="mt-1 text-sm leading-relaxed text-chalk/90">“{item.quote}”</p>
               <a
-                href={`https://www.youtube.com/watch?v=${item.youTubeVideoId}&t=${item.timestampSeconds}`}
+                href={youTubeWatchUrl(item.youTubeVideoId, item.timestampSeconds)}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="mt-1 inline-block text-xs text-fog underline-offset-2 transition-colors hover:text-amber hover:underline"

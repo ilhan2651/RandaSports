@@ -94,9 +94,13 @@ export function OpinionCard({
                 </svg>
               </span>
 
-              <span className="absolute bottom-2 right-2 rounded bg-ink/85 px-2 py-0.5 font-display text-[11px] font-bold tracking-wider text-chalk">
-                {clockTime(opinion.timestampSeconds)}
-              </span>
+              {/* Zaman bilinmiyorsa rozet hiç çıkmıyor: uydurma bir "0:00" göstermektense
+                  hiçbir şey göstermemek doğru. */}
+              {opinion.timestampSeconds !== null && (
+                <span className="absolute bottom-2 right-2 rounded bg-ink/85 px-2 py-0.5 font-display text-[11px] font-bold tracking-wider text-chalk">
+                  {clockTime(opinion.timestampSeconds)}
+                </span>
+              )}
 
               {opinion.teamName && (
                 <span className="absolute left-2 top-2 rounded bg-ink/85 px-2 py-0.5 font-display text-[10px] font-bold uppercase tracking-widest text-amber">

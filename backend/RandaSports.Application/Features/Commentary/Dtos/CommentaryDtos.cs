@@ -14,7 +14,7 @@ public sealed record OpinionDto(
     string Topic,
     string Summary,
     string Quote,
-    int TimestampSeconds,
+    int? TimestampSeconds,
     string Stance,
     string? Prediction,
     string Status,
@@ -94,7 +94,7 @@ public sealed record OpinionSampleDto(
     string Quote,
     string VideoTitle,
     string YouTubeVideoId,
-    int TimestampSeconds);
+    int? TimestampSeconds);
 
 public sealed record CommentatorDto(
     Guid Id,

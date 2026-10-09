@@ -74,7 +74,12 @@ internal static class OpinionPromptBuilder
             eksik bırakmak uydurmaktan iyidir.
           - "..." ile kırpma. Alıntı tam bir cümleyle başlasın, tam bir cümleyle bitsin.
           - Küfür/argo varsa olduğu gibi yazma, o görüşü hiç almaz.
-        - "timestamp": Görüşün videoda başladığı an, SANİYE cinsinden tam sayı. Örnek: "738".
+        - "timestamp": Görüşün videoda başladığı an, MM:SS biçiminde ("12:18"), bir saati
+          aşıyorsa HH:MM:SS ("1:04:30"). Videonun başından itibaren geçen süre — yayının
+          kendi saati ya da maç dakikası DEĞİL.
+          - Ekranda bir süre göstergesi görünüyorsa onu oku, tahmin etme.
+          - Anı tam bilmiyorsan bu alanı BOŞ BIRAK. Yanlış bir an, hiç an olmamasından
+            kötüdür: kullanıcı o saniyeye gidip sözü bulamıyor.
         - "stance": Konu hakkındaki tutum — "olumlu", "olumsuz" veya "notr".
         - "prediction": Tahmin varsa kısa cümle ("Beşiktaş ilk 3'e girer"); yoksa boş bırak.
         - "subjects": Görüşün konusu olan takım ve kişi adları, listede.
@@ -108,7 +113,7 @@ internal static class OpinionPromptBuilder
               "topic": "Görüşün konusu",
               "summary": "Ne dediği ve neden dediği, 2-4 cümle",
               "quote": "Konuşmacının o konudaki sözlerinin tamamı, birebir, 2-5 cümle",
-              "timestamp": "738",
+              "timestamp": "12:18",
               "stance": "olumsuz",
               "prediction": "",
               "sport": "futbol",

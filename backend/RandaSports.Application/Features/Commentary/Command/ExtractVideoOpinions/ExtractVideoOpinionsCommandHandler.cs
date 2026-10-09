@@ -569,11 +569,18 @@ public sealed class ExtractVideoOpinionsCommandHandler(
         return null;
     }
 
-    /// <summary>"738", "12:18" ve "1:02:18" biçimlerini saniyeye çevirir.</summary>
-    private static int ParseTimestamp(string? value, int? durationSeconds)
+    /// <summary>
+    /// "12:18", "1:02:18" ve ham saniye biçimlerini saniyeye çevirir.
+    ///
+    /// Çevrilemeyen ya da video süresini aşan değer için NULL dönüyor, 0 değil.
+    /// Eskiden 0 dönüyordu ve bu, bilinmeyen anı ekranda "0:00" diye geçerli görünen
+    /// bir bilgiye çeviriyordu; kullanıcı videoyu baştan açıp sözü bulamıyordu.
+    /// Modelden de emin olmadığında alanı boş bırakması isteniyor.
+    /// </summary>
+    private static int? ParseTimestamp(string? value, int? durationSeconds)
     {
         if (string.IsNullOrWhiteSpace(value))
-            return 0;
+            return null;
 
         var trimmed = value.Trim();
         var seconds = 0;
@@ -583,19 +590,19 @@ public sealed class ExtractVideoOpinionsCommandHandler(
             foreach (var part in trimmed.Split(':'))
             {
                 if (!int.TryParse(part, CultureInfo.InvariantCulture, out var number) || number < 0)
-                    return 0;
+                    return null;
 
                 seconds = seconds * 60 + number;
             }
         }
         else if (!int.TryParse(trimmed, CultureInfo.InvariantCulture, out seconds) || seconds < 0)
         {
-            return 0;
+            return null;
         }
 
-        // Video süresini aşan an uydurmadır; başa alıyoruz.
+        // Süreyi aşan an uydurmadır; sıfıra çekmek yerine bilinmiyor sayıyoruz.
         if (durationSeconds is > 0 && seconds > durationSeconds)
-            return 0;
+            return null;
 
         return seconds;
     }

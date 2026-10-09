@@ -17,7 +17,7 @@ export type Opinion = {
   topic: string;
   summary: string;
   quote: string;
-  timestampSeconds: number;
+  timestampSeconds: number | null;
   stance: "Positive" | "Negative" | "Neutral";
   prediction: string | null;
   status: "Pending" | "Approved" | "Rejected";
@@ -82,7 +82,7 @@ export type OpinionSample = {
   quote: string;
   videoTitle: string;
   youTubeVideoId: string;
-  timestampSeconds: number;
+  timestampSeconds: number | null;
 };
 
 export type Channel = {
@@ -161,18 +161,23 @@ function dayLabel(date: Date): string {
   });
 }
 
-export function youTubeWatchUrl(videoId: string, seconds: number): string {
+export function youTubeWatchUrl(videoId: string, seconds: number | null): string {
   const base = `https://www.youtube.com/watch?v=${videoId}`;
-  return seconds > 0 ? `${base}&t=${seconds}s` : base;
+  return seconds !== null && seconds > 0 ? `${base}&t=${seconds}s` : base;
 }
 
-export function youTubeEmbedUrl(videoId: string, seconds: number): string {
+export function youTubeEmbedUrl(videoId: string, seconds: number | null): string {
   const params = new URLSearchParams({ autoplay: "1", rel: "0" });
-  if (seconds > 0) params.set("start", String(seconds));
+  if (seconds !== null && seconds > 0) params.set("start", String(seconds));
   return `https://www.youtube.com/embed/${videoId}?${params}`;
 }
 
-export function clockTime(seconds: number): string {
+/**
+ * Zaman damgası yazısı. null, modelin anı bilemediği anlamına geliyor — o durumda
+ * uydurma bir "0:00" göstermek yerine zamanın bilinmediğini söylüyoruz.
+ */
+export function clockTime(seconds: number | null): string {
+  if (seconds === null) return "an belirsiz";
   if (seconds <= 0) return "başından";
 
   const hours = Math.floor(seconds / 3600);

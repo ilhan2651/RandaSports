@@ -29,7 +29,7 @@ public sealed record OpinionSample(
     string Quote,
     string VideoTitle,
     string YouTubeVideoId,
-    int TimestampSeconds);
+    int? TimestampSeconds);
 
 /// <summary>
 /// Doğrulanmamış bir ismin arkasındaki kanıt. İnsana sormadan karar verebilmek için

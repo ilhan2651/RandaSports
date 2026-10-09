@@ -43,7 +43,12 @@ public class Opinion : BaseEntity
     public required string Topic { get; set; }
     public required string Summary { get; set; }
     public required string Quote { get; set; }
-    public int TimestampSeconds { get; set; }
+    /// <summary>
+    /// Alıntının videoda başladığı an. Boş olabilir: model anı bilemediğinde
+    /// uydurmasını istemiyoruz. Eskiden bilinmeyen an 0'a düşüyordu ve ekranda
+    /// "0:00" diye geçerli görünen yanlış bir bilgiye dönüşüyordu.
+    /// </summary>
+    public int? TimestampSeconds { get; set; }
     public Stance Stance { get; set; }
     public string? Prediction { get; set; }
 
