@@ -37,10 +37,13 @@ internal static class OpinionPromptBuilder
         - "kind" alanına bunu yaz: "gorus" | "haber" | "soru". Biz sadece "gorus"
           olanları yayınlıyoruz, ama emin değilsen sil deme — doğru etiketi yaz, gerisini biz hallederiz.
         - Aynı kişinin aynı konudaki birden fazla cümlesini TEK görüşte topla.
-        - En fazla {{MAX}} görüş döndür. SEÇİCİ OL: videodaki en çarpıcı, haber
-          değeri olan sözleri al. Sıradan değerlendirmeleri, nezaket cümlelerini ve
-          herkesin bildiği tespitleri alma. Videoda bu kadar yoksa daha az döndür —
-          hiç çarpıcı söz yoksa boş liste döndür.
+        - En fazla {{MAX}} görüş döndür. Videoda bundan fazla varsa en çarpıcı,
+          haber değeri yüksek olanları seç — ama "yeterince çarpıcı değil" diye
+          değerlendirmeleri atlama. Bir yorumcunun takım, oyuncu, hoca ya da hakem
+          hakkındaki sıradan görüşü de görüştür ve alınır. Sadece reklam, jenerik,
+          skor okuma ve araya giren kısa onay sözleri ("evet", "aynen") alınmaz.
+          Videoda gerçekten hiç değerlendirme yoksa boş liste döndür, ama önce
+          dikkatle bak: çoğu yorum programında en az bir görüş vardır.
 
         KONUŞMACI (en sık hata burada yapılıyor, dikkatle oku):
         - Konuşmacının adını SADECE videonun içinden belirle: alt bant, ekrandaki isim,
