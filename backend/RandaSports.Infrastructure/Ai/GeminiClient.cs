@@ -1,4 +1,5 @@
 using System.Net;
+using System.Text;
 using System.Net.Http.Json;
 using System.Text.Json;
 using Microsoft.Extensions.Logging;
@@ -118,11 +119,16 @@ public sealed class GeminiClient(
             }
         };
 
+        // Geçici teşhis: gövdeyi elle serileştiriyoruz ki loga aynısını
+        // yazabilelim. JsonContent.Create nesneyi içeride serileştirdiği için
+        // gönderilen metni görmenin başka yolu yok.
+        var json = JsonSerializer.Serialize(request);
+
         using var message = new HttpRequestMessage(
             HttpMethod.Post,
             $"models/{_options.Model}:generateContent")
         {
-            Content = JsonContent.Create(request)
+            Content = new StringContent(json, Encoding.UTF8, "application/json")
         };
 
         message.Headers.Add("x-goog-api-key", _options.ApiKey);
@@ -158,6 +164,14 @@ public sealed class GeminiClient(
                 videoUrl is not null,
                 startSeconds?.ToString() ?? "-",
                 endSeconds?.ToString() ?? "-");
+
+            // Gövdenin başı ve sonu: parçaların gerçekten dolu gidip gitmediğini
+            // ve video bağlantısının yerinde olup olmadığını gösteriyor.
+            logger.LogError(
+                "Gemini gövde ({Length} karakter): {Head} ... {Tail}",
+                json.Length,
+                json.Length > 180 ? json[..180] : json,
+                json.Length > 260 ? json[^260..] : string.Empty);
 
             return (null, false);
         }
