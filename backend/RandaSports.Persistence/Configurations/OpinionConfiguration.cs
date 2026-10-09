@@ -27,6 +27,11 @@ public class OpinionConfiguration : IEntityTypeConfiguration<Opinion>
         builder.Property(x => x.Quote).HasMaxLength(2000);
         builder.Property(x => x.Prediction).HasMaxLength(300);
         builder.Property(x => x.ReviewNote).HasMaxLength(1000);
+        builder.Property(x => x.QuoteCheckHeard).HasMaxLength(2000);
+        builder.Property(x => x.QuoteCheckSpeaker).HasMaxLength(100);
+
+        // Doğrulama turu "bekleyen ve henüz bakılmamış" kaydı bu indeksle buluyor.
+        builder.HasIndex(x => new { x.Status, x.QuoteCheck });
 
         builder.HasOne(x => x.Video)
             .WithMany(x => x.Opinions)

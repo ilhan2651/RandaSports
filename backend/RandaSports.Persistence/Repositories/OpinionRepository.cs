@@ -192,6 +192,17 @@ public class OpinionRepository(RandaSportsDbContext context)
             .Where(x => x.VideoId == videoId)
             .ToListAsync(cancellationToken);
 
+    public Task<List<Guid>> GetAwaitingQuoteCheckAsync(int take, CancellationToken cancellationToken = default) =>
+        Context.Opinions
+            .Where(x => x.Status == OpinionStatus.Pending
+                        && x.QuoteCheck == QuoteCheckResult.NotChecked
+                        && x.TimestampSeconds != null)
+            // Eskiden yeniye: onay ekranında en çok bekleyen kayıt önce hazırlansın.
+            .OrderBy(x => x.CreatedAt)
+            .Take(take)
+            .Select(x => x.Id)
+            .ToListAsync(cancellationToken);
+
     public Task<int> CountByStatusAsync(OpinionStatus status, CancellationToken cancellationToken = default) =>
         Context.Opinions.CountAsync(x => x.Status == status, cancellationToken);
 }

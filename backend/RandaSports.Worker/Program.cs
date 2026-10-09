@@ -28,6 +28,9 @@ builder.Services.Configure<VideoDiscoveryOptions>(
 builder.Services.Configure<OpinionExtractionOptions>(
     builder.Configuration.GetSection(OpinionExtractionOptions.SectionName));
 
+builder.Services.Configure<QuoteCheckOptions>(
+    builder.Configuration.GetSection(QuoteCheckOptions.SectionName));
+
 builder.Services.Configure<CommentatorMaintenanceOptions>(
     builder.Configuration.GetSection(CommentatorMaintenanceOptions.SectionName));
 
@@ -41,6 +44,7 @@ builder.Services.AddHostedService<StoryWriterWorker>();
 builder.Services.AddHostedService<SportsSyncWorker>();
 builder.Services.AddHostedService<VideoDiscoveryWorker>();
 builder.Services.AddHostedService<OpinionExtractionWorker>();
+builder.Services.AddHostedService<QuoteCheckWorker>();
 builder.Services.AddHostedService<CommentatorMaintenanceWorker>();
 builder.Services.AddHostedService<TeamLogoWorker>();
 

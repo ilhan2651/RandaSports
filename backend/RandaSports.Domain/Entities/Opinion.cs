@@ -52,7 +52,35 @@ public class Opinion : BaseEntity
     public Stance Stance { get; set; }
     public string? Prediction { get; set; }
 
+    /// <summary>
+    /// Alıntıyı insan doğruladı mı. Onay ekranında videoyu açıp dinleyen kişi
+    /// basıyor; makine buraya yazmıyor. Makinenin ön kontrolü <see cref="QuoteCheck"/>.
+    /// </summary>
     public bool IsQuoteVerified { get; set; }
+
+    /// <summary>
+    /// Makinenin ön kontrolü: damganın etrafındaki kısa pencere modele tekrar
+    /// izletilip "bu cümle burada böyle mi geçiyor" diye soruluyor. Onay durumunu
+    /// değiştirmiyor, yalnızca onay ekranını hazırlıyor.
+    /// </summary>
+    public QuoteCheckResult QuoteCheck { get; set; } = QuoteCheckResult.NotChecked;
+
+    /// <summary>
+    /// Modelin o pencerede duyduğu hal. Birebir tutmadığında ekranda fark olarak
+    /// gösteriliyor ve tek tıkla alıntının yerine geçirilebiliyor.
+    /// </summary>
+    public string? QuoteCheckHeard { get; set; }
+
+    /// <summary>Modelin o pencerede duyduğu konuşmacı.</summary>
+    public string? QuoteCheckSpeaker { get; set; }
+
+    /// <summary>
+    /// Modelin ikinci bakışta verdiği an. Çıkarım anındaki damgayla arasındaki fark
+    /// bize kaymanın ne kadar olduğunu ölçtürüyor — elimizdeki tek ölçüm bu.
+    /// </summary>
+    public int? QuoteCheckTimestampSeconds { get; set; }
+
+    public DateTimeOffset? QuoteCheckedAt { get; set; }
     public OpinionStatus Status { get; set; } = OpinionStatus.Pending;
     public DateTimeOffset? ReviewedAt { get; set; }
     public string? ReviewNote { get; set; }

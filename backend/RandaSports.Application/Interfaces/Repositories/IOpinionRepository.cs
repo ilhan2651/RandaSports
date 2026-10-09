@@ -75,5 +75,11 @@ public interface IOpinionRepository : IGenericRepository<Opinion>
     /// <summary>Aynı videodan daha önce çıkarılmış görüşler (tekrar çalıştırmada temizlenir).</summary>
     Task<List<Opinion>> GetByVideoAsync(Guid videoId, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Alıntı kontrolü bekleyen görüşler: onay sırasında duranlar ve henüz
+    /// bakılmamış olanlar. Damgası olmayan kayıt alınmıyor — bakılacak pencere yok.
+    /// </summary>
+    Task<List<Guid>> GetAwaitingQuoteCheckAsync(int take, CancellationToken cancellationToken = default);
+
     Task<int> CountByStatusAsync(OpinionStatus status, CancellationToken cancellationToken = default);
 }
