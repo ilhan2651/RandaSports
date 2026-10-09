@@ -29,7 +29,13 @@ public sealed record OpinionDto(
     string? SportSlug,
     Guid? StoryId,
     string? StorySlug,
-    string? StoryHeadline);
+    string? StoryHeadline,
+
+    /// <summary>Makinenin ön kontrolü; onay ekranı buna göre renkleniyor.</summary>
+    string QuoteCheck,
+    string? QuoteCheckHeard,
+    string? QuoteCheckSpeaker,
+    int? QuoteCheckTimestampSeconds);
 
 public sealed record ChannelDto(
     Guid Id,
@@ -137,7 +143,11 @@ public static class CommentaryMappings
             opinion.Sport?.Slug ?? opinion.Team?.Sport?.Slug,
             opinion.StoryId,
             opinion.Story?.Slug,
-            opinion.Story?.Headline);
+            opinion.Story?.Headline,
+            opinion.QuoteCheck.ToString(),
+            opinion.QuoteCheckHeard,
+            opinion.QuoteCheckSpeaker,
+            opinion.QuoteCheckTimestampSeconds);
 
     public static ChannelDto ToDto(this Channel channel) =>
         new(

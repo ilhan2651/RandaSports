@@ -193,7 +193,25 @@ public class CommentaryController(IMediator mediator) : ControllerBase
     [HttpPost("opinions/{id:guid}/approve")]
     public async Task<IActionResult> Approve(Guid id, [FromBody] ReviewRequest? request)
     {
-        var result = await mediator.Send(new ReviewOpinionCommand(id, true, request?.Note));
+        var result = await mediator.Send(new ReviewOpinionCommand(
+            id,
+            true,
+            request?.Note,
+            request?.Quote,
+            request?.TimestampSeconds));
+
+        return StatusCode((int)result.StatusCode, result);
+    }
+
+    /// <summary>Toplu onay/ret: ön kontrolden temiz çıkanları tek hamlede geçirmek için.</summary>
+    [HttpPost("opinions/bulk-review")]
+    public async Task<IActionResult> BulkReview([FromBody] BulkReviewRequest request)
+    {
+        var result = await mediator.Send(new ReviewOpinionsCommand(
+            request.Ids ?? [],
+            request.Approve,
+            request.Note));
+
         return StatusCode((int)result.StatusCode, result);
     }
 
@@ -218,7 +236,10 @@ public class CommentaryController(IMediator mediator) : ControllerBase
 
     public sealed record UpdateCommentatorRequest(string? PhotoUrl, string? Bio);
 
-    public sealed record ReviewRequest(string? Note);
+    /// <param name="Quote">Dolu gelirse alıntı bununla değiştirilip öyle onaylanıyor.</param>
+    public sealed record ReviewRequest(string? Note, string? Quote = null, int? TimestampSeconds = null);
+
+    public sealed record BulkReviewRequest(List<Guid>? Ids, bool Approve, string? Note);
 
     public sealed record AttachSpeakerRequest(string? FullName);
 }

@@ -16,6 +16,7 @@ public sealed class ReviewOpinionCommandHandler(
     : IRequestHandler<ReviewOpinionCommand, Result<bool>>
 {
     private const int NoteMaxLength = 1000;
+    private const int QuoteMaxLength = 2000;
 
     public async Task<Result<bool>> Handle(ReviewOpinionCommand request, CancellationToken cancellationToken)
     {
@@ -24,9 +25,17 @@ public sealed class ReviewOpinionCommandHandler(
         if (opinion is null)
             return Result<bool>.Fail("Görüş bulunamadı.", HttpStatusCode.NotFound);
 
+        // Düzeltme onayla birlikte geliyor: ön kontrol başka bir cümle duyduysa
+        // yönetici duyulan hali alıntıya geçirip aynı hamlede onaylıyor.
+        if (!string.IsNullOrWhiteSpace(request.Quote))
+            opinion.Quote = Truncate(request.Quote, QuoteMaxLength)!;
+
+        if (request.TimestampSeconds is >= 0)
+            opinion.TimestampSeconds = request.TimestampSeconds;
+
         opinion.Status = request.Approve ? OpinionStatus.Approved : OpinionStatus.Rejected;
         opinion.ReviewedAt = timeProvider.GetUtcNow();
-        opinion.ReviewNote = Truncate(request.Note);
+        opinion.ReviewNote = Truncate(request.Note, NoteMaxLength);
 
         // Alıntının doğruluğunu makine değil insan onaylıyor: videoyu açıp dinleyen kişi.
         opinion.IsQuoteVerified = request.Approve;
@@ -42,12 +51,12 @@ public sealed class ReviewOpinionCommandHandler(
         return Result<bool>.Ok(true);
     }
 
-    private static string? Truncate(string? value)
+    private static string? Truncate(string? value, int maxLength)
     {
         if (string.IsNullOrWhiteSpace(value))
             return null;
 
         var trimmed = value.Trim();
-        return trimmed.Length <= NoteMaxLength ? trimmed : trimmed[..NoteMaxLength];
+        return trimmed.Length <= maxLength ? trimmed : trimmed[..maxLength];
     }
 }

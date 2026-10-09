@@ -11,13 +11,19 @@ namespace RandaSports.Persistence.Migrations
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
         {
+            // Enumlar bu projede metin olarak saklanıyor. EF'in zorunlu sütun için
+            // ürettiği varsayılan boş metin, hiçbir enum değerine karşılık gelmiyor
+            // ve mevcut kayıtlar okunurken patlıyor; varsayılanı elle yazıyoruz.
             migrationBuilder.AddColumn<string>(
                 name: "quote_check",
                 table: "opinions",
                 type: "character varying(32)",
                 maxLength: 32,
                 nullable: false,
-                defaultValue: "");
+                defaultValue: "NotChecked");
+
+            migrationBuilder.Sql(
+                "UPDATE opinions SET quote_check = 'NotChecked' WHERE quote_check = '';");
 
             migrationBuilder.AddColumn<string>(
                 name: "quote_check_heard",

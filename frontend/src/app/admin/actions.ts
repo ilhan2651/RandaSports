@@ -92,6 +92,49 @@ export async function approveOpinion(_prev: ActionResult | null, formData: FormD
   return done("/admin/yorumlar", result, "Yayına alındı.");
 }
 
+/**
+ * Onay ekranındaki klavye ve toplu işlem buradan geçiyor. Form yerine doğrudan
+ * çağrılıyor: tuşa basınca form göndermek yerine eylemi çağırmak, satırda
+ * kalmayı ve seçimi korumayı kolaylaştırıyor.
+ */
+export async function reviewOpinion(input: {
+  id: string;
+  approve: boolean;
+  note?: string | null;
+  /** Dolu gelirse alıntı bununla değiştirilip öyle onaylanıyor. */
+  quote?: string | null;
+  timestampSeconds?: number | null;
+}): Promise<ActionResult> {
+  if (!input.id) return { ok: false, message: "Görüş seçilmedi." };
+
+  const yol = input.approve ? "approve" : "reject";
+
+  const result = await send(`/api/commentary/opinions/${input.id}/${yol}`, "POST", {
+    note: input.note ?? null,
+    quote: input.quote ?? null,
+    timestampSeconds: input.timestampSeconds ?? null,
+  });
+
+  return done("/admin/yorumlar", result, input.approve ? "Yayına alındı." : "Reddedildi.");
+}
+
+/** Ön kontrolden temiz çıkanları tek hamlede geçirmek için. */
+export async function bulkReviewOpinions(input: {
+  ids: string[];
+  approve: boolean;
+  note?: string | null;
+}): Promise<ActionResult> {
+  if (input.ids.length === 0) return { ok: false, message: "Hiç görüş seçilmedi." };
+
+  const result = await send("/api/commentary/opinions/bulk-review", "POST", {
+    ids: input.ids,
+    approve: input.approve,
+    note: input.note ?? null,
+  });
+
+  return done("/admin/yorumlar", result, "İşlendi.");
+}
+
 export async function rejectOpinion(_prev: ActionResult | null, formData: FormData) {
   const id = String(formData.get("id") ?? "");
   if (!id) return { ok: false, message: "Görüş seçilmedi." };

@@ -33,6 +33,44 @@ export type Opinion = {
   storyId: string | null;
   storySlug: string | null;
   storyHeadline: string | null;
+
+  /** Makinenin ön kontrolü. İnsanın onayının yerine geçmiyor, onu hazırlıyor. */
+  quoteCheck: QuoteCheck;
+  /** Modelin o pencerede gerçekten duyduğu cümle. */
+  quoteCheckHeard: string | null;
+  quoteCheckSpeaker: string | null;
+  /** Modelin ikinci bakışta verdiği an; alıntınınkiyle farkı kaymayı gösteriyor. */
+  quoteCheckTimestampSeconds: number | null;
+};
+
+export type QuoteCheck =
+  | "NotChecked"
+  | "Verbatim"
+  | "Paraphrased"
+  | "Different"
+  | "WrongSpeaker"
+  | "NotHeard"
+  | "Failed";
+
+type QuoteCheckInfo = {
+  label: string;
+  /** Onaylamaya engel mi — ekran buna göre renkleniyor. */
+  tone: "iyi" | "uyari" | "kotu" | "notr";
+  hint: string;
+};
+
+export const QUOTE_CHECK_INFO: Record<QuoteCheck, QuoteCheckInfo> = {
+  NotChecked: { label: "kontrol edilmedi", tone: "notr", hint: "Henüz bakılmadı — videoyu kendin aç." },
+  Verbatim: { label: "birebir", tone: "iyi", hint: "Model de aynı cümleyi duydu." },
+  Paraphrased: {
+    label: "kelimeler farklı",
+    tone: "uyari",
+    hint: "Anlam aynı ama kelimeler tutmuyor. Alıntı birebir olmalı — duyulan hali geçir ya da reddet.",
+  },
+  Different: { label: "farklı", tone: "kotu", hint: "Bu anda söylenen şey bu değil." },
+  WrongSpeaker: { label: "konuşan başkası", tone: "kotu", hint: "Alıntı doğru ama kişi yanlış." },
+  NotHeard: { label: "duyulmadı", tone: "kotu", hint: "Bu pencerede böyle bir söz geçmiyor; damga kaymış olabilir." },
+  Failed: { label: "kontrol edilemedi", tone: "notr", hint: "Modele ulaşılamadı; videoyu kendin aç." },
 };
 
 export type SportFacet = {
