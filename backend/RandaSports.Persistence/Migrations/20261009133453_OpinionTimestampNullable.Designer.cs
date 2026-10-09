@@ -3,6 +3,7 @@ using System;
 using System.Collections.Generic;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using RandaSports.Persistence.Contexts;
@@ -12,9 +13,11 @@ using RandaSports.Persistence.Contexts;
 namespace RandaSports.Persistence.Migrations
 {
     [DbContext(typeof(RandaSportsDbContext))]
-    partial class RandaSportsDbContextModelSnapshot : ModelSnapshot
+    [Migration("20261009133453_OpinionTimestampNullable")]
+    partial class OpinionTimestampNullable
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
