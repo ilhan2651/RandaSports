@@ -62,6 +62,15 @@ public sealed record AiVideoOpinion
     public double? SpeakerConfidence { get; init; }
 
     /// <summary>
+    /// Görüşün ne kadar çarpıcı olduğu (0-1), modelin kendi değerlendirmesi.
+    /// Uzun video dilimlere bölündüğünde her dilim kendi görüşlerini döndürüyor;
+    /// hepsini yayına almak akışı dolduruyor. Bu puan, atıf güveniyle çarpılarak
+    /// video başına en iyi birkaçını seçmekte kullanılıyor.
+    /// </summary>
+    [JsonPropertyName("onem")]
+    public double? Importance { get; init; }
+
+    /// <summary>
     /// İsmi nereden buldu: "altbant" | "baslik" | "hitap" | "aciklama" | "tahmin".
     /// Yüze bakıp tanıdığını iddia etmesi "tahmin" sayılıyor.
     /// </summary>

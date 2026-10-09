@@ -22,17 +22,21 @@ public sealed class GeminiClient(
     private readonly GeminiOptions _options = options.Value;
 
     public Task<string?> GenerateJsonAsync(string prompt, CancellationToken cancellationToken = default) =>
-        SendWithRetryAsync(prompt, null, cancellationToken);
+        SendWithRetryAsync(prompt, null, null, null, cancellationToken);
 
     public Task<string?> GenerateJsonFromVideoAsync(
         string prompt,
         string videoUrl,
+        int? startSeconds = null,
+        int? endSeconds = null,
         CancellationToken cancellationToken = default) =>
-        SendWithRetryAsync(prompt, videoUrl, cancellationToken);
+        SendWithRetryAsync(prompt, videoUrl, startSeconds, endSeconds, cancellationToken);
 
     private async Task<string?> SendWithRetryAsync(
         string prompt,
         string? videoUrl,
+        int? startSeconds,
+        int? endSeconds,
         CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(_options.ApiKey))
@@ -43,7 +47,12 @@ public sealed class GeminiClient(
 
         for (var attempt = 0; attempt <= RetryDelays.Length; attempt++)
         {
-            var (text, shouldRetry) = await TrySendAsync(prompt, videoUrl, cancellationToken);
+            var (text, shouldRetry) = await TrySendAsync(
+                prompt,
+                videoUrl,
+                startSeconds,
+                endSeconds,
+                cancellationToken);
 
             if (!shouldRetry)
                 return text;
@@ -60,15 +69,44 @@ public sealed class GeminiClient(
         return null;
     }
 
+    private static object[] BuildParts(
+        string prompt,
+        string? videoUrl,
+        int? startSeconds,
+        int? endSeconds)
+    {
+        if (videoUrl is null)
+            return [new { text = prompt }];
+
+        if (startSeconds is null && endSeconds is null)
+            return [new { text = prompt }, new { file_data = new { file_uri = videoUrl } }];
+
+        var metadata = new Dictionary<string, object>();
+
+        if (startSeconds is { } start)
+            metadata["start_offset"] = new { seconds = start };
+
+        if (endSeconds is { } end)
+            metadata["end_offset"] = new { seconds = end };
+
+        return
+        [
+            new { text = prompt },
+            new { file_data = new { file_uri = videoUrl }, video_metadata = metadata }
+        ];
+    }
+
     private async Task<(string? Text, bool ShouldRetry)> TrySendAsync(
         string prompt,
         string? videoUrl,
+        int? startSeconds,
+        int? endSeconds,
         CancellationToken cancellationToken)
     {
         // Video varsa ikinci bir parça olarak bağlantısı ekleniyor; dosya yüklemiyoruz.
-        object[] parts = videoUrl is null
-            ? [new { text = prompt }]
-            : [new { text = prompt }, new { file_data = new { file_uri = videoUrl } }];
+        // Aralık verildiyse video_metadata ile gönderiliyor: model yalnızca o bölümü
+        // görüyor ve token da aynı oranda düşüyor.
+        var parts = BuildParts(prompt, videoUrl, startSeconds, endSeconds);
 
         var request = new
         {

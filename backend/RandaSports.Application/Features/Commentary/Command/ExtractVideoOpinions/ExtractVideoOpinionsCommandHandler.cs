@@ -33,6 +33,12 @@ public sealed class ExtractVideoOpinionsCommandHandler(
     private const int PredictionMaxLength = 300;
     private const int SpeakerLabelMaxLength = 100;
     private const int QuoteMinLength = 15;
+
+    /// <summary>
+    /// Kopya alıntı aramasında iki sözün aynı sayılması için gereken en az ortak
+    /// baş uzunluğu. Bu kadarı birebir tutuyorsa tesadüf değil, aynı söz.
+    /// </summary>
+    private const int QuoteFingerprintLength = 25;
     private const int SummaryMaxForVideo = 2000;
 
     /// <summary>
@@ -80,53 +86,108 @@ public sealed class ExtractVideoOpinionsCommandHandler(
         var sportSlugs = sports.Select(x => x.Slug).ToList();
         var channelSportSlugs = video.Channel.Sports.Select(x => x.Slug).ToList();
 
-        var prompt = OpinionPromptBuilder.Build(
-            video.Title,
-            video.Description,
-            candidates.Select(x => x.FullName).ToList(),
-            isChannelRoster,
-            sportSlugs,
-            channelSportSlugs);
-
         var videoUrl = $"https://www.youtube.com/watch?v={video.YouTubeVideoId}";
 
-        string? json;
-        try
+        var segments = PlanSegments(
+            video.DurationSeconds,
+            request.SegmentThresholdMinutes,
+            request.SegmentMinutes,
+            request.SegmentOverlapSeconds,
+            request.MaxSegmentsPerVideo);
+
+        if (segments.Count > 1)
+            logger.LogInformation(
+                "Uzun video {Count} dilimde işleniyor ({Minutes} dk): {Title}",
+                segments.Count,
+                (video.DurationSeconds ?? 0) / 60,
+                video.Title);
+
+        var collected = new List<AiVideoOpinion>();
+        string? videoSummary = null;
+        var failure = 0;
+
+        for (var index = 0; index < segments.Count; index++)
         {
-            json = await geminiClient.GenerateJsonFromVideoAsync(prompt, videoUrl, cancellationToken);
+            var segment = segments[index];
+
+            var prompt = OpinionPromptBuilder.Build(
+                video.Title,
+                video.Description,
+                candidates.Select(x => x.FullName).ToList(),
+                isChannelRoster,
+                sportSlugs,
+                channelSportSlugs,
+                segments.Count > 1 ? index + 1 : null,
+                segments.Count > 1 ? segments.Count : null);
+
+            string? json;
+            try
+            {
+                json = await geminiClient.GenerateJsonFromVideoAsync(
+                    prompt,
+                    videoUrl,
+                    segment.Start,
+                    segment.End,
+                    cancellationToken);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                // Uygulama kapanıyor: denemeyi harcamadan çekiliyoruz, video sırada kalsın.
+                throw;
+            }
+            catch (Exception ex)
+            {
+                // İstisna buradan dışarı çıkarsa scope atılıyor ve yukarıdaki
+                // ProcessingAttempts++ hiç kaydedilmiyor; video sonsuza kadar aynı yere
+                // düşüyor. Zaman aşımı ve ağ hatası bu yüzden burada yakalanıyor.
+                logger.LogWarning(ex, "Gemini çağrısı başarısız ({VideoId}).", video.Id);
+                failure++;
+                continue;
+            }
+
+            if (string.IsNullOrWhiteSpace(json))
+            {
+                failure++;
+                continue;
+            }
+
+            AiVideoAnalysis? parsed;
+            try
+            {
+                parsed = JsonSerializer.Deserialize<AiVideoAnalysis>(json);
+            }
+            catch (JsonException ex)
+            {
+                logger.LogWarning(ex, "Video cevabı okunamadı ({VideoId}).", video.Id);
+                failure++;
+                continue;
+            }
+
+            if (parsed is null)
+            {
+                failure++;
+                continue;
+            }
+
+            videoSummary ??= parsed.VideoSummary;
+
+            // Model dilimin başından itibaren zaman veriyor; mutlak ana burada çeviriyoruz.
+            foreach (var item in parsed.Opinions)
+                collected.Add(ShiftTimestamp(item, segment.Start));
         }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-        {
-            // Uygulama kapanıyor: denemeyi harcamadan çekiliyoruz, video sırada kalsın.
-            throw;
-        }
-        catch (Exception ex)
-        {
-            // İstisna buradan dışarı çıkarsa scope atılıyor ve yukarıdaki
-            // ProcessingAttempts++ hiç kaydedilmiyor; video sonsuza kadar aynı yere
-            // düşüyor. Zaman aşımı ve ağ hatası bu yüzden burada yakalanıyor.
-            logger.LogWarning(ex, "Gemini çağrısı başarısız ({VideoId}).", video.Id);
+
+        // Dilimlerin TAMAMI başarısızsa bu gerçek bir hata; biri tutmuşsa elimizdekiyle
+        // devam ediyoruz, yarım sonuç hiç sonuçtan iyi.
+        if (failure == segments.Count)
             return await FailAsync(video, "Modele ulaşılamadı.", HttpStatusCode.BadGateway, cancellationToken);
-        }
 
-        if (string.IsNullOrWhiteSpace(json))
-            return await FailAsync(video, "Model videoya cevap vermedi.", HttpStatusCode.BadGateway, cancellationToken);
+        video.AiSummary = Truncate(videoSummary, SummaryMaxForVideo);
 
-        AiVideoAnalysis? analysis;
-        try
+        var analysis = new AiVideoAnalysis
         {
-            analysis = JsonSerializer.Deserialize<AiVideoAnalysis>(json);
-        }
-        catch (JsonException ex)
-        {
-            logger.LogWarning(ex, "Video cevabı okunamadı ({VideoId}).", video.Id);
-            return await FailAsync(video, "Model cevabı okunamadı.", HttpStatusCode.BadGateway, cancellationToken);
-        }
-
-        if (analysis is null)
-            return await FailAsync(video, "Model boş cevap döndürdü.", HttpStatusCode.BadGateway, cancellationToken);
-
-        video.AiSummary = Truncate(analysis.VideoSummary, SummaryMaxForVideo);
+            VideoSummary = videoSummary,
+            Opinions = RankAndTrim(collected, request.MaxOpinionsPerVideo)
+        };
 
         // Model videoyu izleyemediyse boş liste dönüyor; bu bir hata değil, atlanacak video.
         if (analysis.Opinions.Count == 0)
@@ -152,7 +213,7 @@ public sealed class ExtractVideoOpinionsCommandHandler(
         var newCommentators = new Dictionary<string, Commentator>(StringComparer.Ordinal);
         var sportIdsBySlug = sports.ToDictionary(x => x.Slug, x => x.Id, StringComparer.OrdinalIgnoreCase);
 
-        foreach (var item in analysis.Opinions.Take(OpinionPromptBuilder.MaxOpinions))
+        foreach (var item in analysis.Opinions)
         {
             var opinion = await BuildOpinionAsync(
                 video,
@@ -567,6 +628,147 @@ public sealed class ExtractVideoOpinionsCommandHandler(
         }
 
         return null;
+    }
+
+    private readonly record struct VideoSegment(int? Start, int? End);
+
+    /// <summary>
+    /// Videoyu hangi aralıklarda soracağımızı planlar. Eşiğin altındaki video tek
+    /// parça kalıyor (aralık verilmiyor, model videonun tamamını görüyor).
+    ///
+    /// Uzun videoda model 40 dakikayı takip etmeye çalışırken zamanı kaçırıyor;
+    /// 8 dakikalık bir bölümde aynı sorun yok. Gemini aralığı orantılı kırptığı için
+    /// toplam token maliyeti videoyu bir kez işlemekle hemen hemen aynı kalıyor.
+    /// </summary>
+    private static List<VideoSegment> PlanSegments(
+        int? durationSeconds,
+        int thresholdMinutes,
+        int segmentMinutes,
+        int overlapSeconds,
+        int maxSegments)
+    {
+        var tek = new List<VideoSegment> { new(null, null) };
+
+        if (durationSeconds is not > 0 || segmentMinutes <= 0)
+            return tek;
+
+        var esik = Math.Max(1, thresholdMinutes) * 60;
+        if (durationSeconds <= esik)
+            return tek;
+
+        var uzunluk = segmentMinutes * 60;
+
+        // Üst sınır: iki saatlik bir yayın 8 dakikalık dilimlerle on beş çağrı demek,
+        // günlük kota tek videoya gidiyor. Sınırı aşan videoda dilimi uzatıyoruz —
+        // videonun sonunu kesmek yerine zaman damgasından biraz feragat ediyoruz.
+        var sinir = Math.Max(1, maxSegments);
+        if (durationSeconds > uzunluk * (long)sinir)
+            uzunluk = (int)Math.Ceiling(durationSeconds.Value / (double)sinir);
+        var bindirme = Math.Clamp(overlapSeconds, 0, uzunluk / 2);
+
+        var segments = new List<VideoSegment>();
+
+        for (var start = 0; start < durationSeconds; start += uzunluk)
+        {
+            // Bindirme geriye doğru: dilim sınırına denk gelen cümle ikinci dilimde
+            // baştan duyulsun. İlk dilimde geriye gidecek yer yok.
+            var from = start == 0 ? 0 : start - bindirme;
+            var to = Math.Min(start + uzunluk, durationSeconds.Value);
+
+            segments.Add(new VideoSegment(from, to));
+
+            if (to >= durationSeconds)
+                break;
+        }
+
+        if (segments.Count == 0)
+            return tek;
+
+        // Son dilim bir tutamsa (süre dilim boyuna tam bölünmediğinde oluyor) ayrı
+        // çağrı yapmaya değmez: onu bir öncekine ekliyoruz. Yoksa 40:10'luk videoda
+        // son dilim 10 saniye oluyor ve modele boşluk soruyoruz.
+        var sonuncu = segments[^1];
+        if (segments.Count > 1 && sonuncu.End - sonuncu.Start < uzunluk / 4)
+        {
+            var onceki = segments[^2];
+            segments.RemoveAt(segments.Count - 1);
+            segments[^1] = new VideoSegment(onceki.Start, sonuncu.End);
+        }
+
+        return segments;
+    }
+
+    /// <summary>
+    /// Dilimden gelen zamanı mutlak ana çevirir. Modelden bölümün başından itibaren
+    /// saymasını istiyoruz; toplamayı burada yapmak, ondan kafasında hesap yapmasını
+    /// istemekten güvenli.
+    /// </summary>
+    private static AiVideoOpinion ShiftTimestamp(AiVideoOpinion item, int? segmentStart)
+    {
+        if (segmentStart is not > 0 || string.IsNullOrWhiteSpace(item.Timestamp))
+            return item;
+
+        var relative = ParseTimestamp(item.Timestamp, null);
+
+        return relative is null
+            ? item
+            : item with { Timestamp = (relative.Value + segmentStart.Value).ToString(CultureInfo.InvariantCulture) };
+    }
+
+    /// <summary>
+    /// Dilimlerden toplanan görüşleri sıralayıp video başına sınırlar.
+    ///
+    /// Sıralama ölçütü önem × konuşmacı güveni: hem çarpıcı hem kime ait olduğu
+    /// sağlam olan öne geçiyor. Sınır olmadan beş dilimli bir yayından on beş görüş
+    /// çıkıyor ve akış tek videoyla doluyor.
+    /// </summary>
+    private static List<AiVideoOpinion> RankAndTrim(List<AiVideoOpinion> items, int maxPerVideo)
+    {
+        var limit = Math.Max(1, maxPerVideo);
+        var secilen = new List<AiVideoOpinion>();
+
+        var sirali = items
+            .Where(x => !string.IsNullOrWhiteSpace(x.Quote))
+            .OrderByDescending(x => (x.Importance ?? 0.5) * (x.SpeakerConfidence ?? 0.5))
+            .ToList();
+
+        foreach (var item in sirali)
+        {
+            if (secilen.Count >= limit)
+                break;
+
+            // Bindirme yüzünden aynı söz iki dilimden gelebiliyor; aynı kişinin
+            // başlangıcı aynı olan alıntısını bir kez alıyoruz.
+            if (secilen.Any(x => AyniAlinti(x, item)))
+                continue;
+
+            secilen.Add(item);
+        }
+
+        return secilen;
+    }
+
+    /// <summary>Bindirmeden gelen kopyaları ayıklamak için: aynı konuşmacının aynı sözü mü.</summary>
+    private static bool AyniAlinti(AiVideoOpinion a, AiVideoOpinion b)
+    {
+        if (!string.Equals(
+                TextNormalizer.Slugify(a.Speaker),
+                TextNormalizer.Slugify(b.Speaker),
+                StringComparison.Ordinal))
+            return false;
+
+        var ilk = TextNormalizer.Slugify(a.Quote);
+        var ikinci = TextNormalizer.Slugify(b.Quote);
+
+        // Alıntının tamamı birebir eşleşmiyor: model aynı sözü iki dilimde farklı
+        // yerden kesiyor ("...şampiyon olur" / "...şampiyon olur ama Mourinho").
+        // Bu yüzden kısa olan uzun olanın başlangıcı mı diye bakıyoruz. Alt sınır,
+        // "evet aynen" gibi kısa onaylamaların birbirine karışmasını engelliyor.
+        var kisa = ilk.Length <= ikinci.Length ? ilk : ikinci;
+        var uzun = ilk.Length <= ikinci.Length ? ikinci : ilk;
+
+        return kisa.Length >= QuoteFingerprintLength
+               && uzun.StartsWith(kisa, StringComparison.Ordinal);
     }
 
     /// <summary>

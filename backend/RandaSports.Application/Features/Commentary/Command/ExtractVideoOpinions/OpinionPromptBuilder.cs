@@ -4,7 +4,13 @@ namespace RandaSports.Application.Features.Commentary.Command.ExtractVideoOpinio
 
 internal static class OpinionPromptBuilder
 {
-    public const int MaxOpinions = 8;
+    /// <summary>
+    /// Tek istekte istenen en fazla görüş. Uzun video dilimlere bölündüğünde her
+    /// dilim ayrı istek olduğu için bu sayı DİLİM başına geçerli; video toplamını
+    /// handler ayrıca sınırlıyor. Sekizden üçe indirildi: bir videodan on görüş
+    /// çıkarmak akışı dolduruyor, çarpıcı olan birkaç tanesi yetiyor.
+    /// </summary>
+    public const int MaxOpinions = 3;
 
     private const string Template = """
         Sana bir spor yorum videosu veriyorum. Videoyu izle ve konuşmacıların
@@ -31,7 +37,10 @@ internal static class OpinionPromptBuilder
         - "kind" alanına bunu yaz: "gorus" | "haber" | "soru". Biz sadece "gorus"
           olanları yayınlıyoruz, ama emin değilsen sil deme — doğru etiketi yaz, gerisini biz hallederiz.
         - Aynı kişinin aynı konudaki birden fazla cümlesini TEK görüşte topla.
-        - En fazla {{MAX}} görüş döndür. Videoda bu kadar yoksa daha az döndür.
+        - En fazla {{MAX}} görüş döndür. SEÇİCİ OL: videodaki en çarpıcı, haber
+          değeri olan sözleri al. Sıradan değerlendirmeleri, nezaket cümlelerini ve
+          herkesin bildiği tespitleri alma. Videoda bu kadar yoksa daha az döndür —
+          hiç çarpıcı söz yoksa boş liste döndür.
 
         KONUŞMACI (en sık hata burada yapılıyor, dikkatle oku):
         - Konuşmacının adını SADECE videonun içinden belirle: alt bant, ekrandaki isim,
@@ -80,6 +89,9 @@ internal static class OpinionPromptBuilder
           - Ekranda bir süre göstergesi görünüyorsa onu oku, tahmin etme.
           - Anı tam bilmiyorsan bu alanı BOŞ BIRAK. Yanlış bir an, hiç an olmamasından
             kötüdür: kullanıcı o saniyeye gidip sözü bulamıyor.
+        - "onem": Bu sözün ne kadar çarpıcı olduğu, 0 ile 1 arası. Tartışma yaratacak,
+          alıntılanacak bir söz 0.9; sıradan bir değerlendirme 0.3. Dürüst ol, her
+          görüşe yüksek puan verme.
         - "stance": Konu hakkındaki tutum — "olumlu", "olumsuz" veya "notr".
         - "prediction": Tahmin varsa kısa cümle ("Beşiktaş ilk 3'e girer"); yoksa boş bırak.
         - "subjects": Görüşün konusu olan takım ve kişi adları, listede.
@@ -98,6 +110,7 @@ internal static class OpinionPromptBuilder
         Listede olmayan biri de konuşabilir; o zaman duyduğun adı yaz.
         Listedeki adı sırf listede olduğu için SEÇME.
 
+        {{SEGMENT}}
         VİDEO BİLGİSİ:
         {{VIDEO}}
 
@@ -110,6 +123,7 @@ internal static class OpinionPromptBuilder
               "speaker": "Konuşmacının adı veya boş",
               "speakerConfidence": 0.9,
               "speakerSource": "altbant",
+              "onem": 0.8,
               "topic": "Görüşün konusu",
               "summary": "Ne dediği ve neden dediği, 2-4 cümle",
               "quote": "Konuşmacının o konudaki sözlerinin tamamı, birebir, 2-5 cümle",
@@ -139,7 +153,9 @@ internal static class OpinionPromptBuilder
         IReadOnlyList<string> speakerNames,
         bool isChannelRoster,
         IReadOnlyList<string> sportSlugs,
-        IReadOnlyList<string> channelSportSlugs)
+        IReadOnlyList<string> channelSportSlugs,
+        int? segmentIndex = null,
+        int? segmentCount = null)
     {
         var speakers = speakerNames.Count == 0
             ? "(liste boş — duyduğun adı yaz)"
@@ -152,6 +168,20 @@ internal static class OpinionPromptBuilder
         var note = isChannelRoster
             ? "Bu liste güvenilir: aşağıdaki isimler bu kanalın yayınlarında bir insan tarafından teyit edildi."
             : "Bu liste ZAYIF bir ipucudur: bu kişilerin bu kanalda konuştuğu doğrulanmadı. Buradan isim seçmen tek başına kanıt sayılmaz, 'speakerSource' alanına 'tahmin' yaz.";
+
+        // Dilimlenen videoda model yalnızca kendi bölümünü görüyor. Zamanı o bölümün
+        // başından itibaren istiyoruz; mutlak ana çevirmeyi handler yapıyor. Modelden
+        // kendi kafasında toplama yapmasını istemek yeni bir hata kaynağı olurdu.
+        var segment = segmentIndex is null || segmentCount is null
+            ? string.Empty
+            : $"""
+               BU BİR BÖLÜM: Sana videonun tamamı değil, {segmentCount} bölüme ayrılmış
+               hâlinin {segmentIndex}. bölümü gösteriliyor. "timestamp" alanına SANA
+               GÖSTERİLEN BÖLÜMÜN başından itibaren geçen süreyi yaz; videonun gerçek
+               başlangıcına göre hesap yapma. Bölümün ortasında başlayan ya da biten
+               yarım bir konuşmayı alma.
+
+               """;
 
         var video = new StringBuilder();
         video.Append("Başlık: ").AppendLine(videoTitle);
@@ -173,6 +203,7 @@ internal static class OpinionPromptBuilder
 
         return Template
             .Replace("{{MAX}}", MaxOpinions.ToString())
+            .Replace("{{SEGMENT}}", segment)
             .Replace("{{SPEAKER_HEADING}}", heading)
             .Replace("{{SPEAKERS}}", speakers)
             .Replace("{{SPEAKER_NOTE}}", note)

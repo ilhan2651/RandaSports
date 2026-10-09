@@ -75,7 +75,14 @@ public sealed class OpinionExtractionWorker(
                 var mediator = scope.ServiceProvider.GetRequiredService<IMediator>();
 
                 var result = await mediator.Send(
-                    new ExtractVideoOpinionsCommand(videoId, _options.StoryMatchDays),
+                    new ExtractVideoOpinionsCommand(
+                        videoId,
+                        _options.StoryMatchDays,
+                        _options.SegmentThresholdMinutes,
+                        _options.SegmentMinutes,
+                        _options.SegmentOverlapSeconds,
+                        _options.MaxOpinionsPerVideo,
+                        _options.MaxSegmentsPerVideo),
                     cancellationToken);
 
                 if (result.IsFail)
