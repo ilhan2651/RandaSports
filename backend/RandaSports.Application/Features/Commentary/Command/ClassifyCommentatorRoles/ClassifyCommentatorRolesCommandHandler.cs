@@ -9,8 +9,8 @@ using RandaSports.Domain.Enums;
 namespace RandaSports.Application.Features.Commentary.Command.ClassifyCommentatorRoles;
 
 /// <summary>
-/// Sözlükteki kişilerin rolünü belirler ve yorumcu olmayanları doğrulanmış
-/// listesinden düşürür.
+/// Sözlükteki kişilerin rolünü belirler: yorumcu olanları doğrulanmış kadroya alır,
+/// olmayanları kadrodan düşürür.
 ///
 /// Neden gerekli: otomatik doğrulama yalnızca tekrarı sayıyordu ve bu, "gerçek bir
 /// insan mı, kamerada konuşuyor mu" sorusunu ölçüyor — "bu kişi yorumcu mu"
@@ -27,6 +27,16 @@ public sealed class ClassifyCommentatorRolesCommandHandler(
 {
     /// <summary>Bu güvenin altındaki karara göre işlem yapmıyoruz, tekrar soruyoruz.</summary>
     private const double MinConfidence = 0.6;
+
+    /// <summary>
+    /// Kadroya ALMAK için aranan güven. İndirme eşiğinden kasıtlı olarak yüksek.
+    ///
+    /// Asimetrinin sebebi: yanlış doğrulamanın bedeli yanlış bırakmanınkinden ağır.
+    /// Doğrulanmış bir isim sonraki videolarda kanal kadrosu güveni kazanıyor, bu da
+    /// başlıktan gelen atıfı 0.75'ten 0.90'a çıkarıp hatayı yayına taşıyor. Doğrulamayı
+    /// geciktirmenin bedeli ise yalnızca birkaç görüşün onay kuyruğunda beklemesi.
+    /// </summary>
+    private const double VerifyConfidence = 0.85;
 
     public async Task<Result<int>> Handle(
         ClassifyCommentatorRolesCommand request,
@@ -82,6 +92,22 @@ public sealed class ClassifyCommentatorRolesCommandHandler(
                     "Doğrulama geri alındı, {Role} olarak belirlendi: {Name} — {Reason}",
                     verdict.Role,
                     commentator.FullName,
+                    verdict.Reason);
+            }
+            // Yorumcu olduğu yüksek güvenle belirlenen kişi kadroya giriyor. Bu dal
+            // olmadığı için sınıflandırma doğru çalışıp da kimse doğrulanmıyordu:
+            // kişiler "Commentator" etiketi alıp doğrulanmamış kalıyor, görüşleri de
+            // kadro güveni kazanamadığı için gereksiz yere onay kuyruğuna düşüyordu.
+            else if (verdict.Role == PersonRole.Commentator
+                     && !commentator.IsVerified
+                     && verdict.Confidence >= VerifyConfidence)
+            {
+                commentator.IsVerified = true;
+
+                logger.LogInformation(
+                    "Kadroya alındı, yorumcu olarak doğrulandı: {Name} ({Confidence}) — {Reason}",
+                    commentator.FullName,
+                    verdict.Confidence,
                     verdict.Reason);
             }
 
