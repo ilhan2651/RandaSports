@@ -51,6 +51,19 @@ services:
       Gemini__ApiKey: ${GEMINI_API_KEY}
       ApiSports__ApiKey: ${APISPORTS_API_KEY}
 
+      # Tarama ve işleme hızı. Yeniden derlemeden ayarlanabilsin diye dışarı
+      # açıldı: kanal sayısı ya da kota değiştiğinde .env'i düzenleyip
+      # `docker compose up -d worker` demek yetiyor. Boş bırakılan değer için
+      # koddaki varsayılan geçerli.
+      VideoDiscovery__BatchSize: ${DISCOVERY_BATCH_SIZE:-4}
+      VideoDiscovery__IntervalMinutes: ${DISCOVERY_INTERVAL_MINUTES:-30}
+      VideoDiscovery__RecheckMinutes: ${DISCOVERY_RECHECK_MINUTES:-120}
+      VideoDiscovery__MaxDurationSeconds: ${DISCOVERY_MAX_DURATION_SECONDS:-3600}
+      OpinionExtraction__BatchSize: ${EXTRACTION_BATCH_SIZE:-2}
+      OpinionExtraction__IntervalMinutes: ${EXTRACTION_INTERVAL_MINUTES:-20}
+      QuoteCheck__BatchSize: ${QUOTE_CHECK_BATCH_SIZE:-10}
+      QuoteCheck__IntervalMinutes: ${QUOTE_CHECK_INTERVAL_MINUTES:-10}
+
   web:
     build:
       context: ./frontend

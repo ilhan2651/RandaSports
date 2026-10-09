@@ -51,6 +51,7 @@ public sealed class VideoDiscoveryWorker(
         var cutoff = timeProvider.GetUtcNow().AddMinutes(-_options.RecheckMinutes);
 
         List<Guid> channelIds;
+        List<string> channelNames;
 
         using (var scope = scopeFactory.CreateScope())
         {
@@ -62,10 +63,15 @@ public sealed class VideoDiscoveryWorker(
                 cancellationToken);
 
             channelIds = channels.Select(x => x.Id).ToList();
+            channelNames = channels.Select(x => x.Name).ToList();
         }
 
         if (channelIds.Count == 0)
             return;
+
+        // Tur sessiz çalışıyordu: kanaldan yeni video çıkmayınca hiçbir şey
+        // yazılmadığı için "taradı mı taramadı mı" logdan anlaşılmıyordu.
+        logger.LogInformation("{Count} kanal taranacak: {Channels}", channelIds.Count, string.Join(", ", channelNames));
 
         foreach (var channelId in channelIds)
         {
