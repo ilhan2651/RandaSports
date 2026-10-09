@@ -151,6 +151,13 @@ public sealed class ExtractVideoOpinionsCommandHandler(
                 continue;
             }
 
+            // Teşhis: modelin ham cevabının başı. Alan adları tutmazsa ya da cevap
+            // beklediğimiz biçimde değilse burada görünür.
+            logger.LogInformation(
+                "Model cevabı ({Length} karakter): {Head}",
+                json.Length,
+                json.Length > 400 ? json[..400] : json);
+
             AiVideoAnalysis? parsed;
             try
             {
@@ -171,6 +178,14 @@ public sealed class ExtractVideoOpinionsCommandHandler(
 
             videoSummary ??= parsed.VideoSummary;
 
+            logger.LogInformation(
+                "Modelden {Count} görüş geldi (dilim {Index}/{Total}): {Kinds}",
+                parsed.Opinions.Count,
+                index + 1,
+                segments.Count,
+                string.Join(", ", parsed.Opinions.Select(x =>
+                    $"{x.Kind ?? "?"}/{(string.IsNullOrWhiteSpace(x.Speaker) ? "ISIMSIZ" : x.Speaker)}")));
+
             // Model dilimin başından itibaren zaman veriyor; mutlak ana burada çeviriyoruz.
             foreach (var item in parsed.Opinions)
                 collected.Add(ShiftTimestamp(item, segment.Start));
@@ -183,10 +198,19 @@ public sealed class ExtractVideoOpinionsCommandHandler(
 
         video.AiSummary = Truncate(videoSummary, SummaryMaxForVideo);
 
+        var secilen = RankAndTrim(collected, request.MaxOpinionsPerVideo);
+
+        if (collected.Count != secilen.Count)
+            logger.LogInformation(
+                "Sıralama sonrası {Before} görüşten {After} tanesi alındı (video başı sınır {Limit}).",
+                collected.Count,
+                secilen.Count,
+                request.MaxOpinionsPerVideo);
+
         var analysis = new AiVideoAnalysis
         {
             VideoSummary = videoSummary,
-            Opinions = RankAndTrim(collected, request.MaxOpinionsPerVideo)
+            Opinions = secilen
         };
 
         // Model videoyu izleyemediyse boş liste dönüyor; bu bir hata değil, atlanacak video.
@@ -306,7 +330,7 @@ public sealed class ExtractVideoOpinionsCommandHandler(
             && !string.IsNullOrWhiteSpace(item.Kind))
         {
             logger.LogInformation(
-                "Görüş olmadığı için atlandı ({Kind}): {Topic}",
+                "Görüş elendi — tür \"{Kind}\" (yalnızca \"gorus\" yayınlanıyor): {Topic}",
                 item.Kind,
                 item.Topic);
 
@@ -318,11 +342,28 @@ public sealed class ExtractVideoOpinionsCommandHandler(
         var quote = Truncate(item.Quote, QuoteMaxLength);
 
         if (topic is null || summary is null || quote is null)
+        {
+            logger.LogInformation(
+                "Görüş elendi — zorunlu alan boş (konu:{Topic} özet:{Summary} alıntı:{Quote}): {Speaker}",
+                topic is null ? "YOK" : "var",
+                summary is null ? "YOK" : "var",
+                quote is null ? "YOK" : "var",
+                item.Speaker ?? "isimsiz");
+
             return null;
+        }
 
         // Tek kelimelik "alıntı" işe yaramaz; modelin boş geçtiği alan olur.
         if (quote.Length < QuoteMinLength)
+        {
+            logger.LogInformation(
+                "Görüş elendi — alıntı çok kısa ({Length} < {Min}): \"{Quote}\"",
+                quote.Length,
+                QuoteMinLength,
+                quote);
+
             return null;
+        }
 
         var modelSpeaker = SpeakerMatcher.Match(item.Speaker, candidates);
 
@@ -381,7 +422,15 @@ public sealed class ExtractVideoOpinionsCommandHandler(
 
         // Ne isim eşleşti ne de bir isim duyuldu: görüşü kime ait yazacağımızı bilmiyoruz.
         if (commentator is null && string.IsNullOrWhiteSpace(speakerLabel))
+        {
+            logger.LogInformation(
+                "Görüş elendi — konuşmacı belirlenemedi (kaynak {Source}, modelin dediği \"{Model}\"): {Topic}",
+                source,
+                item.Speaker ?? "",
+                topic);
+
             return null;
+        }
 
         var confidence = ResolveConfidence(commentator, source, isChannelRoster, item.SpeakerConfidence);
 
