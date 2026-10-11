@@ -11,4 +11,10 @@ public sealed class GeminiOptions
 
     /// <summary>Video analizi uzun sürebildiği için metin isteklerine göre yüksek tutuluyor.</summary>
     public int TimeoutSeconds { get; set; } = 300;
+
+    /// <summary>
+    /// Kota (429) görüldükten sonra Gemini'ye hiç çıkılmayacak süre. Günlük kota
+    /// saatlerce geri gelmediği için kısa aralıklarla yeniden denemenin faydası yok.
+    /// </summary>
+    public int QuotaCooldownMinutes { get; set; } = 15;
 }

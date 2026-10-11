@@ -120,10 +120,10 @@ public sealed class ExtractVideoOpinionsCommandHandler(
                 segments.Count > 1 ? index + 1 : null,
                 segments.Count > 1 ? segments.Count : null);
 
-            string? json;
+            GeminiResult ai;
             try
             {
-                json = await geminiClient.GenerateJsonFromVideoAsync(
+                ai = await geminiClient.GenerateJsonFromVideoAsync(
                     prompt,
                     videoUrl,
                     segment.Start,
@@ -145,11 +145,13 @@ public sealed class ExtractVideoOpinionsCommandHandler(
                 continue;
             }
 
-            if (string.IsNullOrWhiteSpace(json))
+            if (!ai.IsSuccess)
             {
                 failure++;
                 continue;
             }
+
+            var json = ai.Json!;
 
             // Teşhis: modelin ham cevabının başı. Alan adları tutmazsa ya da cevap
             // beklediğimiz biçimde değilse burada görünür.

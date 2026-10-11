@@ -61,13 +61,20 @@ public sealed class EnrichArticleCommandHandler(
             sports,
             article.Source?.Language);
 
-        var json = await geminiClient.GenerateJsonAsync(prompt, cancellationToken);
+        var ai = await geminiClient.GenerateJsonAsync(prompt, cancellationToken);
 
-        if (string.IsNullOrWhiteSpace(json))
+        if (!ai.IsSuccess)
         {
+            // Kota ya da 5xx haberin suçu değil: deneme hakkını geri veriyoruz.
+            // Yoksa kota dolu olduğu için üç tur içinde haber kalıcı olarak düşüyor.
+            if (ai.IsTransient)
+                article.AiAttempts--;
+
             await unitOfWork.SaveChangesAsync(cancellationToken);
             return Result<bool>.Fail("Model cevap vermedi.", HttpStatusCode.BadGateway);
         }
+
+        var json = ai.Json!;
 
         AiArticleAnalysis? analysis;
         try

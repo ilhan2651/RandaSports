@@ -49,6 +49,9 @@ public static class ServiceRegistration
 
         services.Configure<GeminiOptions>(configuration.GetSection(GeminiOptions.SectionName));
 
+        // Kota anahtarı tekil: beş worker da aynı devreyi paylaşıyor.
+        services.AddSingleton<GeminiCircuitBreaker>();
+
         services.AddHttpClient<IGeminiClient, GeminiClient>((serviceProvider, client) =>
         {
             var geminiOptions = serviceProvider

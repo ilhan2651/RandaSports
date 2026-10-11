@@ -20,11 +20,11 @@ public sealed class GeminiPersonRoleClassifier(
         if (candidates.Count == 0)
             return [];
 
-        string? json;
+        GeminiResult ai;
 
         try
         {
-            json = await geminiClient.GenerateJsonAsync(
+            ai = await geminiClient.GenerateJsonAsync(
                 PersonRolePromptBuilder.Build(candidates),
                 cancellationToken);
         }
@@ -40,13 +40,13 @@ public sealed class GeminiPersonRoleClassifier(
             return [];
         }
 
-        if (string.IsNullOrWhiteSpace(json))
+        if (!ai.IsSuccess)
         {
             logger.LogWarning("Rol tespitinde model cevap vermedi.");
             return [];
         }
 
-        var rows = PersonRolePromptBuilder.Parse(json);
+        var rows = PersonRolePromptBuilder.Parse(ai.Json!);
 
         if (rows.Count == 0)
         {

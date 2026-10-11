@@ -58,13 +58,19 @@ public sealed class WriteStoryCommandHandler(
             .ToList();
 
         var prompt = StoryPromptBuilder.Build(sources);
-        var json = await geminiClient.GenerateJsonAsync(prompt, cancellationToken);
+        var ai = await geminiClient.GenerateJsonAsync(prompt, cancellationToken);
 
-        if (string.IsNullOrWhiteSpace(json))
+        if (!ai.IsSuccess)
         {
+            // Geçici hatada konu yeniden yazılmayı hak ediyor.
+            if (ai.IsTransient)
+                story.AiAttempts--;
+
             await unitOfWork.SaveChangesAsync(cancellationToken);
             return Result<bool>.Fail("Model cevap vermedi.", HttpStatusCode.BadGateway);
         }
+
+        var json = ai.Json!;
 
         AiStoryContent? content;
         try

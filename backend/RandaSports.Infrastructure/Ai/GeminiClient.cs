@@ -11,6 +11,7 @@ namespace RandaSports.Infrastructure.Ai;
 public sealed class GeminiClient(
     HttpClient httpClient,
     IOptions<GeminiOptions> options,
+    GeminiCircuitBreaker circuitBreaker,
     ILogger<GeminiClient> logger) : IGeminiClient
 {
     private static readonly TimeSpan[] RetryDelays =
@@ -22,10 +23,10 @@ public sealed class GeminiClient(
 
     private readonly GeminiOptions _options = options.Value;
 
-    public Task<string?> GenerateJsonAsync(string prompt, CancellationToken cancellationToken = default) =>
+    public Task<GeminiResult> GenerateJsonAsync(string prompt, CancellationToken cancellationToken = default) =>
         SendWithRetryAsync(prompt, null, null, null, cancellationToken);
 
-    public Task<string?> GenerateJsonFromVideoAsync(
+    public Task<GeminiResult> GenerateJsonFromVideoAsync(
         string prompt,
         string videoUrl,
         int? startSeconds = null,
@@ -33,7 +34,7 @@ public sealed class GeminiClient(
         CancellationToken cancellationToken = default) =>
         SendWithRetryAsync(prompt, videoUrl, startSeconds, endSeconds, cancellationToken);
 
-    private async Task<string?> SendWithRetryAsync(
+    private async Task<GeminiResult> SendWithRetryAsync(
         string prompt,
         string? videoUrl,
         int? startSeconds,
@@ -43,12 +44,20 @@ public sealed class GeminiClient(
         if (string.IsNullOrWhiteSpace(_options.ApiKey))
         {
             logger.LogError("Gemini API anahtarı ayarlanmamış (Gemini:ApiKey).");
-            return null;
+            return GeminiResult.Permanent();
+        }
+
+        // Devre açıkken HTTP'ye hiç çıkmıyoruz. Günlük kota saatlerce geri
+        // gelmediği için her turda yeniden denemek sadece log üretiyordu.
+        if (circuitBreaker.IsOpen(out var remaining))
+        {
+            logger.LogDebug("Gemini devresi açık, {Minutes:F0} dk kaldı.", remaining.TotalMinutes);
+            return GeminiResult.Transient();
         }
 
         for (var attempt = 0; attempt <= RetryDelays.Length; attempt++)
         {
-            var (text, shouldRetry) = await TrySendAsync(
+            var (result, shouldRetry) = await TrySendAsync(
                 prompt,
                 videoUrl,
                 startSeconds,
@@ -56,7 +65,7 @@ public sealed class GeminiClient(
                 cancellationToken);
 
             if (!shouldRetry)
-                return text;
+                return result;
 
             if (attempt == RetryDelays.Length)
                 break;
@@ -67,7 +76,9 @@ public sealed class GeminiClient(
         }
 
         logger.LogWarning("Gemini birkaç denemeye rağmen cevap vermedi.");
-        return null;
+
+        // Denemeler tükendi ama sebep hâlâ geçici: çağıran taraf deneme hakkını yakmamalı.
+        return GeminiResult.Transient();
     }
 
     private static object[] BuildParts(
@@ -97,7 +108,11 @@ public sealed class GeminiClient(
         ];
     }
 
-    private async Task<(string? Text, bool ShouldRetry)> TrySendAsync(
+    /// <summary>Cevaptaki sayısal alanı okur; alan yoksa 0 döner.</summary>
+    private static int ReadInt(JsonElement parent, string name) =>
+        parent.TryGetProperty(name, out var node) && node.TryGetInt32(out var value) ? value : 0;
+
+    private async Task<(GeminiResult Result, bool ShouldRetry)> TrySendAsync(
         string prompt,
         string? videoUrl,
         int? startSeconds,
@@ -140,15 +155,22 @@ public sealed class GeminiClient(
             var error = await response.Content.ReadAsStringAsync(cancellationToken);
             var statusCode = (int)response.StatusCode;
 
-            // 503 (model dolu), 429 (kota), 500 geçici — tekrar denemeye değer.
+            // 429 kota: saatlerce sürebiliyor, 30 saniye sonra tekrar denemek
+            // boşuna. Devreyi açıp hemen çekiliyoruz.
+            if (response.StatusCode is HttpStatusCode.TooManyRequests)
+            {
+                circuitBreaker.Trip(TimeSpan.FromMinutes(_options.QuotaCooldownMinutes));
+                return (GeminiResult.Transient(), false);
+            }
+
+            // 503 (model dolu) ve 500 gerçekten geçici: kısa beklemeyle düzeliyor.
             var transient = response.StatusCode is HttpStatusCode.ServiceUnavailable
-                or HttpStatusCode.TooManyRequests
                 or HttpStatusCode.InternalServerError;
 
             if (transient)
             {
                 logger.LogWarning("Gemini geçici hata ({StatusCode}).", statusCode);
-                return (null, true);
+                return (GeminiResult.Transient(), true);
             }
 
             // Geçici teşhis: aynı istek curl ile 200 dönerken uygulamadan 403
@@ -173,16 +195,27 @@ public sealed class GeminiClient(
                 json.Length > 180 ? json[..180] : json,
                 json.Length > 260 ? json[^260..] : string.Empty);
 
-            return (null, false);
+            return (GeminiResult.Permanent(), false);
         }
 
         await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
         using var document = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken);
 
+        // Token künyesi her cevapta geliyor; şimdiye kadar okunmuyordu. Maliyeti
+        // ölçebilmenin tek kaynağı bu.
+        var promptTokens = 0;
+        var outputTokens = 0;
+
+        if (document.RootElement.TryGetProperty("usageMetadata", out var usage))
+        {
+            promptTokens = ReadInt(usage, "promptTokenCount");
+            outputTokens = ReadInt(usage, "candidatesTokenCount");
+        }
+
         if (!document.RootElement.TryGetProperty("candidates", out var candidates) || candidates.GetArrayLength() == 0)
         {
             logger.LogWarning("Gemini boş cevap döndürdü.");
-            return (null, false);
+            return (GeminiResult.Permanent(), false);
         }
 
         var candidate = candidates[0];
@@ -194,9 +227,25 @@ public sealed class GeminiClient(
             // Video işlenemediğinde (erişim yok, çok uzun) cevap gövdesiz gelebiliyor.
             var reason = candidate.TryGetProperty("finishReason", out var finish) ? finish.GetString() : "bilinmiyor";
             logger.LogWarning("Gemini içerik döndürmedi (sebep: {Reason}).", reason);
-            return (null, false);
+            return (GeminiResult.Permanent(), false);
         }
 
-        return (responseParts[0].TryGetProperty("text", out var textNode) ? textNode.GetString() : null, false);
+        var text = responseParts[0].TryGetProperty("text", out var textNode) ? textNode.GetString() : null;
+
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            logger.LogWarning("Gemini boş metin döndürdü.");
+            return (GeminiResult.Permanent(), false);
+        }
+
+        circuitBreaker.Close();
+
+        logger.LogInformation(
+            "Gemini token: {In} girdi / {Out} cikti ({Kind})",
+            promptTokens,
+            outputTokens,
+            videoUrl is null ? "metin" : "video");
+
+        return (GeminiResult.Ok(text, promptTokens, outputTokens), false);
     }
 }

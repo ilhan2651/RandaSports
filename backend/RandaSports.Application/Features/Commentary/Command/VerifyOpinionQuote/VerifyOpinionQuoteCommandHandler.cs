@@ -55,10 +55,10 @@ public sealed class VerifyOpinionQuoteCommandHandler(
             opinion.Quote,
             opinion.Commentator?.FullName ?? opinion.SpeakerLabel);
 
-        string? json;
+        GeminiResult ai;
         try
         {
-            json = await geminiClient.GenerateJsonFromVideoAsync(
+            ai = await geminiClient.GenerateJsonFromVideoAsync(
                 prompt,
                 $"https://www.youtube.com/watch?v={opinion.Video.YouTubeVideoId}",
                 start,
@@ -81,8 +81,8 @@ public sealed class VerifyOpinionQuoteCommandHandler(
         AiQuoteCheck? parsed = null;
         try
         {
-            if (!string.IsNullOrWhiteSpace(json))
-                parsed = JsonSerializer.Deserialize<AiQuoteCheck>(json);
+            if (ai.IsSuccess)
+                parsed = JsonSerializer.Deserialize<AiQuoteCheck>(ai.Json!);
         }
         catch (JsonException ex)
         {

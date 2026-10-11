@@ -2,8 +2,11 @@ namespace RandaSports.Application.Interfaces.Services;
 
 public interface IGeminiClient
 {
-    /// <summary>Verilen istemi gönderir ve modelin döndürdüğü ham JSON metnini verir.</summary>
-    Task<string?> GenerateJsonAsync(string prompt, CancellationToken cancellationToken = default);
+    /// <summary>
+    /// Verilen istemi gönderir. Sonuç, modelin ham JSON metnini, çağrının başarı
+    /// durumunu (geçici / kalıcı hata ayrımı) ve token künyesini taşır.
+    /// </summary>
+    Task<GeminiResult> GenerateJsonAsync(string prompt, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// İstemi bir YouTube videosuyla birlikte gönderir. Video indirilmiyor;
@@ -15,7 +18,7 @@ public interface IGeminiClient
     /// damgaları belirgin biçimde isabetli oluyor. Kırpma orantılı olduğu için
     /// dilimlemenin toplam token maliyeti videoyu bir kez işlemekle hemen hemen aynı.
     /// </param>
-    Task<string?> GenerateJsonFromVideoAsync(
+    Task<GeminiResult> GenerateJsonFromVideoAsync(
         string prompt,
         string videoUrl,
         int? startSeconds = null,
