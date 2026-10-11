@@ -159,7 +159,9 @@ public sealed class GeminiClient(
             // boşuna. Devreyi açıp hemen çekiliyoruz.
             if (response.StatusCode is HttpStatusCode.TooManyRequests)
             {
-                circuitBreaker.Trip(TimeSpan.FromMinutes(_options.QuotaCooldownMinutes));
+                circuitBreaker.Trip(
+                                   TimeSpan.FromMinutes(_options.QuotaCooldownMinutes),
+                                   error.Length > 400 ? error[..400] : error);
                 return (GeminiResult.Transient(), false);
             }
 

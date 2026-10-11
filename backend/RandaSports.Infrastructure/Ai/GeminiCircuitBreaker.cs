@@ -33,7 +33,12 @@ public sealed class GeminiCircuitBreaker(TimeProvider timeProvider, ILogger<Gemi
     }
 
     /// <summary>Devreyi belirtilen süre boyunca açar.</summary>
-    public void Trip(TimeSpan duration)
+    /// <summary>Devreyi belirtilen süre boyunca açar.</summary>
+    /// <param name="detail">
+    /// Sağlayıcının hata gövdesi. Yalnızca devre ilk kez açılırken loglanıyor:
+    /// kotanın hangi metrikte ve hangi limitte dolduğunu burada öğreniyoruz.
+    /// </param>
+    public void Trip(TimeSpan duration, string? detail = null)
     {
         var now = timeProvider.GetUtcNow();
         var until = now.Add(duration).UtcTicks;
@@ -43,8 +48,9 @@ public sealed class GeminiCircuitBreaker(TimeProvider timeProvider, ILogger<Gemi
         // her çağrı için bir satır yazmanın anlamı yok.
         if (previous <= now.UtcTicks)
             logger.LogWarning(
-                "Gemini kotası doldu. Devre {Minutes:F0} dakika açık kalacak.",
-                duration.TotalMinutes);
+                "Gemini kotası doldu. Devre {Minutes:F0} dakika açık kalacak. Sağlayıcı: {Detail}",
+                duration.TotalMinutes,
+                detail ?? "-");
     }
 
     /// <summary>Başarılı bir çağrıdan sonra devreyi kapatır.</summary>
