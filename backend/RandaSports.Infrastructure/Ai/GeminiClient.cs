@@ -12,7 +12,7 @@ public sealed class GeminiClient(
     HttpClient httpClient,
     IOptions<GeminiOptions> options,
     GeminiCircuitBreaker circuitBreaker,
-    ILogger<GeminiClient> logger) : IGeminiClient
+    ILogger<GeminiClient> logger) : IGeminiVideoClient
 {
     private static readonly TimeSpan[] RetryDelays =
     [
@@ -22,9 +22,6 @@ public sealed class GeminiClient(
     ];
 
     private readonly GeminiOptions _options = options.Value;
-
-    public Task<GeminiResult> GenerateJsonAsync(string prompt, CancellationToken cancellationToken = default) =>
-        SendWithRetryAsync(prompt, null, null, null, cancellationToken);
 
     public Task<GeminiResult> GenerateJsonFromVideoAsync(
         string prompt,

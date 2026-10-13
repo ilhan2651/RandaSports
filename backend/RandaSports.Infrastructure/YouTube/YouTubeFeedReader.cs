@@ -13,7 +13,7 @@ public sealed class YouTubeFeedReader(
     private static readonly XNamespace Yt = "http://www.youtube.com/xml/schemas/2015";
     private static readonly XNamespace Media = "http://search.yahoo.com/mrss/";
 
-    public async Task<IReadOnlyList<YouTubeFeedItem>> ReadChannelAsync(
+    public async Task<IReadOnlyList<YouTubeFeedItem>?> ReadChannelAsync(
         string youTubeChannelId,
         CancellationToken cancellationToken = default)
     {
@@ -27,7 +27,7 @@ public sealed class YouTubeFeedReader(
         catch (HttpRequestException ex)
         {
             logger.LogWarning(ex, "Kanal beslemesi okunamadı: {ChannelId}", youTubeChannelId);
-            return [];
+            return null;
         }
 
         XDocument document;
@@ -38,7 +38,7 @@ public sealed class YouTubeFeedReader(
         catch (System.Xml.XmlException ex)
         {
             logger.LogWarning(ex, "Kanal beslemesi çözümlenemedi: {ChannelId}", youTubeChannelId);
-            return [];
+            return null;
         }
 
         var items = new List<YouTubeFeedItem>();

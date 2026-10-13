@@ -13,7 +13,12 @@ public sealed record YouTubeFeedItem(
 /// </summary>
 public interface IYouTubeFeedReader
 {
-    Task<IReadOnlyList<YouTubeFeedItem>> ReadChannelAsync(
+    /// <returns>
+    /// Besleme okunduysa videolar (kanal sessizse boş liste). Besleme hiç
+    /// okunamadıysa <c>null</c> — "okunamadı" ile "kanalda video yok" ayrı
+    /// şeyler ve çağıran taraf bunlara ayrı tepki veriyor.
+    /// </returns>
+    Task<IReadOnlyList<YouTubeFeedItem>?> ReadChannelAsync(
         string youTubeChannelId,
         CancellationToken cancellationToken = default);
 }

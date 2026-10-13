@@ -2,6 +2,7 @@ using System.Net;
 using System.Text;
 using System.Text.Json;
 using MediatR;
+using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;
 using RandaSports.Application.Common.Text;
 using RandaSports.Application.Common.Wrappers;
@@ -14,7 +15,7 @@ namespace RandaSports.Application.Features.Stories.Command.WriteStory;
 
 public sealed class WriteStoryCommandHandler(
     IStoryRepository storyRepository,
-    IGeminiClient geminiClient,
+    IChatClient chatClient,
     IUnitOfWork unitOfWork,
     TimeProvider timeProvider,
     ILogger<WriteStoryCommandHandler> logger)
@@ -58,19 +59,44 @@ public sealed class WriteStoryCommandHandler(
             .ToList();
 
         var prompt = StoryPromptBuilder.Build(sources);
-        var ai = await geminiClient.GenerateJsonAsync(prompt, cancellationToken);
+        string json;
 
-        if (!ai.IsSuccess)
+        try
         {
-            // Geçici hatada konu yeniden yazılmayı hak ediyor.
-            if (ai.IsTransient)
-                story.AiAttempts--;
+            var response = await chatClient.GetResponseAsync(
+                prompt,
+                new ChatOptions
+                {
+                    Temperature = 0.2f,
+                    ResponseFormat = ChatResponseFormat.Json
+                },
+                cancellationToken);
 
+            json = response.Text;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (AiQuotaExhaustedException)
+        {
+            // Kota geçici: konu yeniden yazılmayı hak ediyor, deneme hakkı yanmasın.
+            story.AiAttempts--;
+            await unitOfWork.SaveChangesAsync(cancellationToken);
+            return Result<bool>.Fail("Kota dolu, sonra denenecek.", HttpStatusCode.BadGateway);
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Model cevap vermedi ({StoryId}).", story.Id);
             await unitOfWork.SaveChangesAsync(cancellationToken);
             return Result<bool>.Fail("Model cevap vermedi.", HttpStatusCode.BadGateway);
         }
 
-        var json = ai.Json!;
+        if (string.IsNullOrWhiteSpace(json))
+        {
+            await unitOfWork.SaveChangesAsync(cancellationToken);
+            return Result<bool>.Fail("Model cevap vermedi.", HttpStatusCode.BadGateway);
+        }
 
         AiStoryContent? content;
         try

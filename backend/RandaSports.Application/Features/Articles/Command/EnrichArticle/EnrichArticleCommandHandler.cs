@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Net;
 using System.Text.Json;
 using MediatR;
+using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;
 using RandaSports.Application.Common.Wrappers;
 using RandaSports.Application.Interfaces;
@@ -13,7 +14,7 @@ namespace RandaSports.Application.Features.Articles.Command.EnrichArticle;
 public sealed class EnrichArticleCommandHandler(
     IArticleRepository articleRepository,
     IArticleContentExtractor contentExtractor,
-    IGeminiClient geminiClient,
+    IChatClient chatClient,
     ISportDictionary sportDictionary,
     IUnitOfWork unitOfWork,
     TimeProvider timeProvider,
@@ -61,20 +62,44 @@ public sealed class EnrichArticleCommandHandler(
             sports,
             article.Source?.Language);
 
-        var ai = await geminiClient.GenerateJsonAsync(prompt, cancellationToken);
+        string json;
 
-        if (!ai.IsSuccess)
+        try
         {
-            // Kota ya da 5xx haberin suçu değil: deneme hakkını geri veriyoruz.
-            // Yoksa kota dolu olduğu için üç tur içinde haber kalıcı olarak düşüyor.
-            if (ai.IsTransient)
-                article.AiAttempts--;
+            var response = await chatClient.GetResponseAsync(
+                prompt,
+                new ChatOptions
+                {
+                    Temperature = 0.2f,
+                    ResponseFormat = ChatResponseFormat.Json
+                },
+                cancellationToken);
 
+            json = response.Text;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (AiQuotaExhaustedException)
+        {
+            // Kota haberin suçu değil: deneme hakkını geri veriyoruz.
+            article.AiAttempts--;
+            await unitOfWork.SaveChangesAsync(cancellationToken);
+            return Result<bool>.Fail("Kota dolu, sonra denenecek.", HttpStatusCode.BadGateway);
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Model cevap vermedi ({ArticleId}).", article.Id);
             await unitOfWork.SaveChangesAsync(cancellationToken);
             return Result<bool>.Fail("Model cevap vermedi.", HttpStatusCode.BadGateway);
         }
 
-        var json = ai.Json!;
+        if (string.IsNullOrWhiteSpace(json))
+        {
+            await unitOfWork.SaveChangesAsync(cancellationToken);
+            return Result<bool>.Fail("Model boş cevap döndürdü.", HttpStatusCode.BadGateway);
+        }
 
         AiArticleAnalysis? analysis;
         try

@@ -1,22 +1,17 @@
 namespace RandaSports.Application.Interfaces.Services;
 
-public interface IGeminiClient
+/// <summary>
+/// Video analizi Gemini'ye özgü: video indirilmiyor, bağlantı doğrudan modele
+/// veriliyor ve yalnızca istenen zaman aralığı izletiliyor. Standart sohbet
+/// soyutlaması (IChatClient) bunu kapsamadığı için ayrı duruyor.
+/// </summary>
+public interface IGeminiVideoClient
 {
-    /// <summary>
-    /// Verilen istemi gönderir. Sonuç, modelin ham JSON metnini, çağrının başarı
-    /// durumunu (geçici / kalıcı hata ayrımı) ve token künyesini taşır.
-    /// </summary>
-    Task<GeminiResult> GenerateJsonAsync(string prompt, CancellationToken cancellationToken = default);
-
-    /// <summary>
-    /// İstemi bir YouTube videosuyla birlikte gönderir. Video indirilmiyor;
-    /// bağlantı doğrudan modele veriliyor.
-    /// </summary>
     /// <param name="startSeconds">
     /// Verilirse model videonun yalnızca bu aralığını görüyor. Uzun yayınları
     /// dilimlemek için: model 40 dakikayı değil 8 dakikayı takip ettiğinde zaman
     /// damgaları belirgin biçimde isabetli oluyor. Kırpma orantılı olduğu için
-    /// dilimlemenin toplam token maliyeti videoyu bir kez işlemekle hemen hemen aynı.
+    /// dilimlemenin toplam token maliyeti videoyu bir kez işlemekle aynı.
     /// </param>
     Task<GeminiResult> GenerateJsonFromVideoAsync(
         string prompt,

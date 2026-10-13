@@ -21,7 +21,7 @@ public sealed class ExtractVideoOpinionsCommandHandler(
     IStoryRepository storyRepository,
     ITeamMatcher teamMatcher,
     ISportsReadRepository sportsReadRepository,
-    IGeminiClient geminiClient,
+    IGeminiVideoClient geminiClient,
     IUnitOfWork unitOfWork,
     TimeProvider timeProvider,
     ILogger<ExtractVideoOpinionsCommandHandler> logger)
@@ -106,6 +106,10 @@ public sealed class ExtractVideoOpinionsCommandHandler(
         string? videoSummary = null;
         var failure = 0;
 
+        // Kalıcı sebeple düşen dilim sayısı. Hepsi geçiciyse (kota, 5xx, zaman aşımı)
+        // videonun deneme hakkı yanmamalı: kuyrukta kalsın, sonra tekrar denensin.
+        var permanent = 0;
+
         for (var index = 0; index < segments.Count; index++)
         {
             var segment = segments[index];
@@ -148,6 +152,10 @@ public sealed class ExtractVideoOpinionsCommandHandler(
             if (!ai.IsSuccess)
             {
                 failure++;
+
+                if (!ai.IsTransient)
+                    permanent++;
+
                 continue;
             }
 
@@ -169,12 +177,14 @@ public sealed class ExtractVideoOpinionsCommandHandler(
             {
                 logger.LogWarning(ex, "Video cevabı okunamadı ({VideoId}).", video.Id);
                 failure++;
+                permanent++;
                 continue;
             }
 
             if (parsed is null)
             {
                 failure++;
+                permanent++;
                 continue;
             }
 
@@ -196,7 +206,20 @@ public sealed class ExtractVideoOpinionsCommandHandler(
         // Dilimlerin TAMAMI başarısızsa bu gerçek bir hata; biri tutmuşsa elimizdekiyle
         // devam ediyoruz, yarım sonuç hiç sonuçtan iyi.
         if (failure == segments.Count)
+        {
+            // Hepsi geçici sebeple düştüyse deneme hakkını geri veriyoruz. Yoksa
+            // günlük kota doluyken video üç tur içinde MaxAttempts'i tüketiyor ve
+            // kuyruktan kalıcı olarak düşüyor — haberlerde yaşadığımız hatanın aynısı.
+            if (permanent == 0)
+            {
+                video.ProcessingAttempts--;
+                logger.LogInformation(
+                    "Model geçici olarak ulaşılamadı, deneme hakkı iade edildi ({VideoId}).",
+                    video.Id);
+            }
+
             return await FailAsync(video, "Modele ulaşılamadı.", HttpStatusCode.BadGateway, cancellationToken);
+        }
 
         video.AiSummary = Truncate(videoSummary, SummaryMaxForVideo);
 

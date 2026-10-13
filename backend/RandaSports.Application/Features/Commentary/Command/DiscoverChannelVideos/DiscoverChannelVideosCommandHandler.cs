@@ -56,9 +56,19 @@ public sealed class DiscoverChannelVideosCommandHandler(
 
         var items = await feedReader.ReadChannelAsync(channel.YouTubeChannelId, cancellationToken);
 
+        // Besleme okunamadı: geçici arıza. Kimliğe DOKUNMUYORUZ. Eskiden burada
+        // kimlik siliniyordu; tek bir ağ arızası bütün kanalları sayfa kazımaya
+        // mahkûm edip keşfi kalıcı olarak kilitliyordu.
+        if (items is null)
+        {
+            channel.LastError = "Besleme okunamadı; sonraki turda tekrar denenecek.";
+            await unitOfWork.SaveChangesAsync(cancellationToken);
+            return Result<int>.Fail(channel.LastError, HttpStatusCode.BadGateway);
+        }
+
         if (items.Count == 0)
         {
-            // Besleme boşsa kimlik büyük ihtimalle yanlış çözülmüştür (kanal sayfasında
+            // Besleme gerçekten boş: kimlik büyük ihtimalle yanlış çözülmüştür (kanal sayfasında
             // başka bir kanalın kimliği geçebiliyor). Kimliği atıyoruz ki bir sonraki
             // taramada baştan çözülsün; yoksa kanal kalıcı olarak boş kalıyor.
             channel.YouTubeChannelId = null;

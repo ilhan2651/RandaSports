@@ -12,6 +12,8 @@
 
 
   <ItemGroup>
+    <PackageReference Include="Google.GenAI" Version="1.25.0" />
+    <PackageReference Include="Microsoft.Extensions.AI" Version="10.10.0" />
     <PackageReference Include="System.IdentityModel.Tokens.Jwt" Version="8.19.2" />
     <PackageReference Include="System.ServiceModel.Syndication" Version="10.0.12" />
     <PackageReference Include="SmartReader" Version="0.11.1" />

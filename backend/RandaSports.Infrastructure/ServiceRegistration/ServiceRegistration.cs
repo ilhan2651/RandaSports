@@ -1,11 +1,13 @@
+using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using RandaSports.Application.Interfaces.Services;
 using RandaSports.Infrastructure.Ai;
 using RandaSports.Infrastructure.Content;
-using RandaSports.Infrastructure.Rss;
 using RandaSports.Infrastructure.People;
+using RandaSports.Infrastructure.Rss;
 using RandaSports.Infrastructure.Security;
 using RandaSports.Infrastructure.Sports;
 using RandaSports.Infrastructure.YouTube;
@@ -52,7 +54,7 @@ public static class ServiceRegistration
         // Kota anahtarı tekil: beş worker da aynı devreyi paylaşıyor.
         services.AddSingleton<GeminiCircuitBreaker>();
 
-        services.AddHttpClient<IGeminiClient, GeminiClient>((serviceProvider, client) =>
+        services.AddHttpClient<IGeminiVideoClient, GeminiClient>((serviceProvider, client) =>
         {
             var geminiOptions = serviceProvider
                 .GetRequiredService<IOptions<GeminiOptions>>().Value;
@@ -81,10 +83,12 @@ public static class ServiceRegistration
             client.DefaultRequestHeaders.UserAgent.ParseAdd(BrowserUserAgent);
         });
 
+        // Besleme de tarayıcı kimliğiyle isteniyor: YouTube bot kimliğine zaman zaman
+        // eksik ya da boş gövde döndürüyor ve bu "kanalda video yok" gibi görünüyor.
         services.AddHttpClient<IYouTubeFeedReader, YouTubeFeedReader>(client =>
         {
             client.Timeout = TimeSpan.FromSeconds(30);
-            client.DefaultRequestHeaders.UserAgent.ParseAdd(BotUserAgent);
+            client.DefaultRequestHeaders.UserAgent.ParseAdd(BrowserUserAgent);
         });
 
         // Süre bilgisi izleme sayfasından okunuyor; besleme vermiyor.
@@ -92,6 +96,22 @@ public static class ServiceRegistration
         {
             client.Timeout = TimeSpan.FromSeconds(30);
             client.DefaultRequestHeaders.UserAgent.ParseAdd(BrowserUserAgent);
+        });
+
+
+        services.AddSingleton<IChatClient>(sp =>
+        {
+            var gemini = sp.GetRequiredService<IOptions<GeminiOptions>>().Value;
+
+            IChatClient client = new Google.GenAI.Client(apiKey: gemini.ApiKey)
+                .AsIChatClient(gemini.Model);
+
+            // Decorator: kota mantığı tek yerde, handler'lar bilmiyor.
+            return new QuotaAwareChatClient(
+                client,
+                sp.GetRequiredService<GeminiCircuitBreaker>(),
+                sp.GetRequiredService<IOptions<GeminiOptions>>(),
+                sp.GetRequiredService<ILogger<QuotaAwareChatClient>>());
         });
 
         // Anahtar tüm sporlarda ortak; adres ve kota spor başına ayrı.

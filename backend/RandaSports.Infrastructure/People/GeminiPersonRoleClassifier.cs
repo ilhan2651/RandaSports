@@ -1,3 +1,4 @@
+using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;
 using RandaSports.Application.Common.Text;
 using RandaSports.Application.Interfaces.Services;
@@ -10,7 +11,7 @@ namespace RandaSports.Infrastructure.People;
 /// kişi başına ayrı istek atmanın bir faydası yok.
 /// </summary>
 public sealed class GeminiPersonRoleClassifier(
-    IGeminiClient geminiClient,
+    IChatClient chatClient,
     ILogger<GeminiPersonRoleClassifier> logger) : IPersonRoleClassifier
 {
     public async Task<List<PersonRoleVerdict>> ClassifyAsync(
@@ -20,13 +21,20 @@ public sealed class GeminiPersonRoleClassifier(
         if (candidates.Count == 0)
             return [];
 
-        GeminiResult ai;
+        string json;
 
         try
         {
-            ai = await geminiClient.GenerateJsonAsync(
+            var response = await chatClient.GetResponseAsync(
                 PersonRolePromptBuilder.Build(candidates),
+                new ChatOptions
+                {
+                    Temperature = 0.2f,
+                    ResponseFormat = ChatResponseFormat.Json
+                },
                 cancellationToken);
+
+            json = response.Text;
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -40,13 +48,13 @@ public sealed class GeminiPersonRoleClassifier(
             return [];
         }
 
-        if (!ai.IsSuccess)
+        if (string.IsNullOrWhiteSpace(json))
         {
             logger.LogWarning("Rol tespitinde model cevap vermedi.");
             return [];
         }
 
-        var rows = PersonRolePromptBuilder.Parse(ai.Json!);
+        var rows = PersonRolePromptBuilder.Parse(json);
 
         if (rows.Count == 0)
         {

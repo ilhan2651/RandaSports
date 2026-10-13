@@ -25,7 +25,7 @@ namespace RandaSports.Application.Features.Commentary.Command.VerifyOpinionQuote
 /// </summary>
 public sealed class VerifyOpinionQuoteCommandHandler(
     IOpinionRepository opinionRepository,
-    IGeminiClient geminiClient,
+    IGeminiVideoClient geminiClient,
     IUnitOfWork unitOfWork,
     TimeProvider timeProvider,
     ILogger<VerifyOpinionQuoteCommandHandler> logger)
@@ -76,6 +76,14 @@ public sealed class VerifyOpinionQuoteCommandHandler(
             logger.LogWarning(ex, "Alıntı kontrolü başarısız ({OpinionId}).", opinion.Id);
             await WriteAsync(opinion, QuoteCheckResult.Failed, null, null, null, cancellationToken);
             return Result<bool>.Fail("Modele ulaşılamadı.", HttpStatusCode.BadGateway);
+        }
+
+        // Kota ya da 5xx: alıntı "kontrol edilemedi" demek, "duyulmadı" demek değil.
+        // İşaret bırakmıyoruz ki devre kapandığında aynı görüş tekrar denensin.
+        if (ai.IsTransient)
+        {
+            logger.LogDebug("Alıntı kontrolü geçici olarak yapılamadı ({OpinionId}).", opinion.Id);
+            return Result<bool>.Fail("Modele geçici olarak ulaşılamadı.", HttpStatusCode.BadGateway);
         }
 
         AiQuoteCheck? parsed = null;
